@@ -1,101 +1,118 @@
-import Image from "next/image";
+'use client'
 
-export default function Home() {
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { Code2, CheckCircle, AlertCircle } from 'lucide-react'
+
+export default function SettingsPage() {
+  const router = useRouter()
+  const [apiKey, setApiKey] = useState('')
+  const [userId, setUserId] = useState('')
+  const [saved, setSaved] = useState(false)
+  const [hasSettings, setHasSettings] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem('mendixToNodeSettings')
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored)
+        setApiKey(parsed.apiKey || '')
+        setUserId(parsed.userId || '')
+        if (parsed.apiKey && parsed.userId) setHasSettings(true)
+      } catch { /* ignore */ }
+    }
+  }, [])
+
+  const handleSave = () => {
+    if (!apiKey.trim() || !userId.trim()) return
+    localStorage.setItem('mendixToNodeSettings', JSON.stringify({ apiKey: apiKey.trim(), userId: userId.trim() }))
+    setSaved(true)
+    setHasSettings(true)
+    setTimeout(() => setSaved(false), 3000)
+  }
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        {/* Header */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-indigo-600 rounded-xl mb-4">
+            <Code2 className="w-7 h-7 text-white" />
+          </div>
+          <h1 className="text-2xl font-semibold text-slate-800">mendix-to-node</h1>
+          <p className="text-slate-500 mt-1 text-sm">Generate a Node.js app from any Mendix project</p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Card */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <h2 className="text-base font-semibold text-slate-700 mb-5">Mendix Credentials</h2>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                Personal Access Token (PAT)
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder="MxToken ..."
+                className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Requires scopes: <code className="bg-slate-100 px-1 rounded">mx:app:metadata:read</code> and <code className="bg-slate-100 px-1 rounded">mx:modelrepository:repo:read</code>
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                User ID (OpenID)
+              </label>
+              <input
+                type="text"
+                value={userId}
+                onChange={e => setUserId(e.target.value)}
+                placeholder="a1b2c3d4-..."
+                className="w-full px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              />
+              <p className="mt-1.5 text-xs text-slate-400">
+                Found in Mendix Portal → Profile → Personal Data
+              </p>
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={!apiKey.trim() || !userId.trim()}
+              className="w-full py-2.5 px-4 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {saved ? (
+                <span className="flex items-center justify-center gap-2">
+                  <CheckCircle className="w-4 h-4" />
+                  Saved!
+                </span>
+              ) : 'Save Settings'}
+            </button>
+          </div>
+
+          {/* Warning */}
+          <div className="mt-4 flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+            <span>Credentials are stored in localStorage only — never sent to any server except Mendix.</span>
+          </div>
+        </div>
+
+        {/* Go to Projects */}
+        {hasSettings && (
+          <div className="mt-4 text-center">
+            <button
+              onClick={() => router.push('/projects')}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-800 text-white text-sm font-medium rounded-lg hover:bg-slate-700 transition-colors"
+            >
+              Go to Projects →
+            </button>
+          </div>
+        )}
+      </div>
     </div>
-  );
+  )
 }
