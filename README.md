@@ -1,36 +1,188 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# mendix-to-node
 
-## Getting Started
+[![standard-readme compliant](https://img.shields.io/badge/readme%20style-standard-brightgreen.svg?style=flat-square)](https://github.com/RichardLitt/standard-readme)
+[![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square)](https://nextjs.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-First, run the development server:
+Generate a runnable Node.js/Express/Prisma app from any Mendix project — via voice or click.
+
+## Table of Contents
+
+- [Background](#background)
+- [Install](#install)
+- [Usage](#usage)
+- [API](#api)
+- [Security](#security)
+- [Related Efforts](#related-efforts)
+- [Maintainers](#maintainers)
+- [Contributing](#contributing)
+- [License](#license)
+
+## Background
+
+Mendix is a low-code platform that stores application models — domain entities, microflows (business logic), and pages (UI) — in a proprietary format. Getting that logic out into a conventional codebase requires either manual rewriting or the [Mendix Platform SDK](https://docs.mendix.com/apidocs-mxsdk/mxsdk/).
+
+This tool automates that extraction. It reads a complete Mendix app model over the Platform SDK and generates a working **Node.js + Express + EJS + Prisma** project from it. The primary audience is Mendix presales consultants who need a live demo of a customer's own app running as a standard Node.js service.
+
+The export flow is entirely streaming: a [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) connection shows each stage of model extraction in real time, then code generation runs client-side (pure functions, no network) and the result is packaged into a ZIP download.
+
+Voice commands are supported via the [Web Speech API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API) (Chrome/Safari) and [FluidVoice](https://fluent.ai) Write Mode (macOS dictation), both of which feed into a shared text input with fuzzy project-name matching.
+
+## Install
+
+**Prerequisites:**
+- Node.js 18+
+- A [Mendix Personal Access Token (PAT)](https://docs.mendix.com/community-tools/mendix-profile/user-settings/#pat) with scopes:
+  - `mx:app:metadata:read`
+  - `mx:modelrepository:repo:read`
+- Your Mendix **User ID** (OpenID), found in Mendix Portal → Profile → Personal Data
+
+```bash
+git clone https://github.com/joshuamoesa/mendix-to-node.git
+cd mendix-to-node
+npm install
+```
+
+## Usage
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+**Step 1 — Settings (`/`)**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Enter your PAT and User ID. Credentials are saved to `localStorage` and never leave your browser except as Authorization headers sent directly to Mendix.
 
-## Learn More
+**Step 2 — Projects (`/projects`)**
 
-To learn more about Next.js, take a look at the following resources:
+Load your project list. Use the search box or voice commands to find a project:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Say or type | Action |
+|-------------|--------|
+| `fetch projects` | Load project list from Mendix API |
+| `export [name] to node` | Navigate to export for that project |
+| `convert [name]` | Same as above |
+| `search [term]` | Filter the list |
+| `clear` | Clear the search filter |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Project name matching is fuzzy: partial names, token overlap, and Levenshtein distance are all tried. If no confident match is found (score < 0.35), the top three candidates are shown.
 
-## Deploy on Vercel
+Only Git repositories have an **Export to Node.js** button. SVN projects are excluded because the SDK's branch handling for SVN differs and the demo value is lower.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Step 3 — Export (`/export/[projectId]`)**
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The export page opens an SSE connection to `/api/model` and streams progress in real time:
+
+```
+Initializing SDK...
+Creating working copy — this takes 30–120 seconds, please wait...
+Working copy ready. Extracting domain model...
+Reading domain model — 3 modules, 12 entities
+Reading microflows — 8 found
+Reading pages — 6 found
+```
+
+Once complete, the generated files appear in a tabbed code viewer grouped by category:
+
+| Tab | Contents |
+|-----|----------|
+| **Data** | `prisma/schema.prisma`, `src/types.ts` |
+| **Logic** | `src/services/*.ts` (one per microflow, up to 50) |
+| **Pages** | `views/*.ejs` (one per Mendix page, up to 30) |
+| **Routes** | `src/routes/*.ts` (page routes + entity CRUD routes) |
+| **Config** | `src/app.ts`, `src/db.ts`, `package.json`, `tsconfig.json`, `.env.example`, `README.md` |
+
+Click **Download ZIP** to get all files. The generated app runs with:
+
+```bash
+npm install
+cp .env.example .env   # add your DATABASE_URL
+npm run db:push
+npm run dev            # starts on port 3001
+```
+
+> The generated code is a demo-quality starting point. Review `src/routes/*.ts` for missing authentication and input validation before any production use.
+
+## API
+
+### `POST /api/projects/stream`
+
+Fetches all Mendix projects for the authenticated user and enriches each with repository details from the Platform SDK. Returns a [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) stream.
+
+**Request body:**
+
+```json
+{ "apiKey": "string", "userId": "string" }
+```
+
+**Event types:**
+
+```
+data: {"type":"progress","stage":"Fetching project list","detail":""}
+data: {"type":"progress","stage":"Loading project details","detail":"My App","count":1,"total":42}
+data: {"type":"project","project":{...MendixProject}}
+data: {"type":"complete","total":42}
+data: {"type":"error","error":"Invalid access token","hint":"..."}
+```
+
+Pagination uses offset-based fetching (`limit=100`, stops on duplicate or short page). Hard cap at offset 1000.
+
+---
+
+### `POST /api/model`
+
+Creates a temporary Mendix working copy and extracts the full app model. Returns a Server-Sent Events stream. Working copy creation takes 30–120 seconds — this is a Mendix platform constraint.
+
+**Request body:**
+
+```json
+{ "apiKey": "string", "userId": "string", "projectId": "string", "branch": "main" }
+```
+
+**Event types:**
+
+```
+data: {"type":"progress","stage":"Creating working copy","detail":"..."}
+data: {"type":"progress","stage":"Reading domain model","detail":"3 modules, 12 entities"}
+data: {"type":"progress","stage":"Reading microflows","detail":"8 found"}
+data: {"type":"progress","stage":"Reading pages","detail":"6 found"}
+data: {"type":"model","model":{...MendixAppModel}}
+data: {"type":"complete"}
+data: {"type":"error","error":"..."}
+```
+
+Extraction limits: 50 microflows, 30 pages. System modules (`System`, `Administration`, `Marketplace`) are skipped automatically.
+
+## Security
+
+Credentials (PAT and User ID) are stored in `localStorage` only. They are transmitted exclusively as `Authorization: MxToken ...` headers in requests from the Next.js server to Mendix APIs. They are never logged, stored server-side, or sent to any third party.
+
+The generated ZIP is assembled in the browser (via jszip) entirely in memory and is never written to any server.
+
+**On shared computers:** `localStorage` is readable by any JavaScript running on the same origin. Clear your credentials from the Settings page when done.
+
+To report a security issue, contact the maintainer directly rather than opening a public GitHub issue.
+
+## Related Efforts
+
+- [mendix-projects-viewer](https://github.com/joshuamoesa/mendix-projects-viewer) — the viewer this project was derived from; shares the SSE streaming pattern and Mendix Projects API v2 integration
+- [mendix-sdk-export-demo-java](https://github.com/joshuamoesa/mendix-sdk-export-demo-java) — Java-based Mendix SDK model export demo
+- [Mendix Platform SDK](https://docs.mendix.com/apidocs-mxsdk/mxsdk/) — official SDK used for model extraction
+
+## Maintainers
+
+[@joshuamoesa](https://github.com/joshuamoesa)
+
+## Contributing
+
+Issues and pull requests are welcome. For significant changes, open an issue first to discuss the approach.
+
+This project follows standard JavaScript/TypeScript conventions. Run `npm run build` before submitting a PR — the build must pass with no lint errors.
+
+Small note on the Mendix SDK: all SDK objects require `.load()` before property access (lazy proxies). Any contribution touching `app/api/model/route.ts` must maintain this pattern or properties will silently return `undefined`.
+
+## License
+
+[MIT](LICENSE) © Joshua Moesa
