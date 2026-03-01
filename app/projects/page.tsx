@@ -53,7 +53,7 @@ export default function ProjectsPage() {
       return
     }
 
-    let settings: { apiKey: string; userId: string }
+    let settings: { apiKey: string; userId: string; projectLimit?: number; devSettingsEnabled?: boolean }
     try {
       settings = JSON.parse(stored)
     } catch {
@@ -72,7 +72,11 @@ export default function ProjectsPage() {
       const response = await fetch('/api/projects/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey: settings.apiKey, userId: settings.userId })
+        body: JSON.stringify({
+          apiKey: settings.apiKey,
+          userId: settings.userId,
+          projectLimit: settings.devSettingsEnabled ? (settings.projectLimit ?? 3) : null
+        })
       })
 
       if (!response.ok) {

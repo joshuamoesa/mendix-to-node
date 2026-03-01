@@ -8,6 +8,8 @@ export default function SettingsPage() {
   const router = useRouter()
   const [apiKey, setApiKey] = useState('')
   const [userId, setUserId] = useState('')
+  const [projectLimit, setProjectLimit] = useState(3)
+  const [devSettingsEnabled, setDevSettingsEnabled] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasSettings, setHasSettings] = useState(false)
 
@@ -18,14 +20,33 @@ export default function SettingsPage() {
         const parsed = JSON.parse(stored)
         setApiKey(parsed.apiKey || '')
         setUserId(parsed.userId || '')
+        setProjectLimit(parsed.projectLimit ?? 3)
+        setDevSettingsEnabled(parsed.devSettingsEnabled ?? false)
         if (parsed.apiKey && parsed.userId) setHasSettings(true)
       } catch { /* ignore */ }
     }
   }, [])
 
+  const patchSettings = (patch: Record<string, unknown>) => {
+    const stored = localStorage.getItem('mendixToNodeSettings')
+    const current = stored ? JSON.parse(stored) : {}
+    localStorage.setItem('mendixToNodeSettings', JSON.stringify({ ...current, ...patch }))
+  }
+
+  const handleToggleDev = () => {
+    const next = !devSettingsEnabled
+    setDevSettingsEnabled(next)
+    patchSettings({ devSettingsEnabled: next })
+  }
+
   const handleSave = () => {
     if (!apiKey.trim() || !userId.trim()) return
-    localStorage.setItem('mendixToNodeSettings', JSON.stringify({ apiKey: apiKey.trim(), userId: userId.trim() }))
+    localStorage.setItem('mendixToNodeSettings', JSON.stringify({
+      apiKey: apiKey.trim(),
+      userId: userId.trim(),
+      projectLimit,
+      devSettingsEnabled
+    }))
     setSaved(true)
     setHasSettings(true)
     setTimeout(() => setSaved(false), 3000)
@@ -99,6 +120,50 @@ export default function SettingsPage() {
             <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
             <span>Credentials are stored in localStorage only — never sent to any server except Mendix.</span>
           </div>
+        </div>
+
+        {/* Developer Settings */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mt-4 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4">
+            <div>
+              <span className="text-base font-semibold text-slate-700">Developer Settings</span>
+              {devSettingsEnabled && (
+                <span className="ml-2 text-xs font-medium text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">active</span>
+              )}
+            </div>
+            <button
+              onClick={handleToggleDev}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none ${devSettingsEnabled ? 'bg-indigo-600' : 'bg-slate-200'}`}
+              role="switch"
+              aria-checked={devSettingsEnabled}
+            >
+              <span
+                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform duration-200 ${devSettingsEnabled ? 'translate-x-4' : 'translate-x-0'}`}
+              />
+            </button>
+          </div>
+
+          {devSettingsEnabled && (
+            <div className="px-6 pb-6 border-t border-slate-100">
+              <p className="text-xs text-slate-400 mt-4 mb-5">Speed up live demos by limiting how many projects are fully loaded.</p>
+              <div>
+                <label className="block text-sm font-medium text-slate-600 mb-1.5">
+                  Project fetch limit
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={projectLimit}
+                  onChange={e => setProjectLimit(Math.max(1, parseInt(e.target.value) || 1))}
+                  className="w-24 px-3 py-2.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Only the first <strong>{projectLimit}</strong> project{projectLimit !== 1 ? 's' : ''} will be enriched with SDK details. Set to a high value (e.g. 1000) to load all.
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Go to Projects */}

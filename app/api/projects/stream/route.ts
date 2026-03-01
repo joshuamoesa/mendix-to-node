@@ -4,7 +4,8 @@ import { NextRequest } from 'next/server'
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { apiKey, userId } = body
+    const { apiKey, userId, projectLimit } = body
+    const limit: number | null = typeof projectLimit === 'number' && projectLimit > 0 ? projectLimit : null
 
     if (!apiKey || !userId) {
       return new Response(
@@ -85,7 +86,9 @@ export async function POST(request: NextRequest) {
             if (offset >= 1000) hasMorePages = false
           }
 
-          send({ type: 'progress', stage: 'Enriching projects', detail: `${allProjects.length} projects found` })
+          const projectsToEnrich = limit !== null ? allProjects.slice(0, limit) : allProjects
+
+          send({ type: 'progress', stage: 'Enriching projects', detail: limit !== null ? `${projectsToEnrich.length} of ${allProjects.length} projects (dev limit)` : `${allProjects.length} projects` })
 
           // Load Mendix SDK via eval to avoid Next.js bundler issues
           const dynamicRequire = eval('require')
@@ -98,10 +101,10 @@ export async function POST(request: NextRequest) {
           setPlatformConfig({ mendixToken: apiKey })
           const client = new MendixPlatformClient()
 
-          const total = allProjects.length
+          const total = projectsToEnrich.length
 
-          for (let i = 0; i < allProjects.length; i++) {
-            const project = allProjects[i]
+          for (let i = 0; i < projectsToEnrich.length; i++) {
+            const project = projectsToEnrich[i]
 
             send({
               type: 'progress',

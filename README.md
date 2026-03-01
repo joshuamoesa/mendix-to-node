@@ -55,6 +55,8 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Enter your PAT and User ID. Credentials are saved to `localStorage` and never leave your browser except as Authorization headers sent directly to Mendix.
 
+The **Developer Settings** section (toggle to expand) lets you limit how many projects are enriched with SDK details on load. The default is 3, which makes the project list appear much faster during live demos. Disable the toggle to load all projects without a limit. Changes to the toggle take effect immediately — no save required.
+
 **Step 2 — Projects (`/projects`)**
 
 Load your project list. Use the search box or voice commands to find a project:
@@ -114,20 +116,22 @@ Fetches all Mendix projects for the authenticated user and enriches each with re
 **Request body:**
 
 ```json
-{ "apiKey": "string", "userId": "string" }
+{ "apiKey": "string", "userId": "string", "projectLimit": 3 }
 ```
+
+`projectLimit` is optional. When provided as a positive integer, only that many projects are enriched with SDK repository details (the slow per-project step). When `null` or omitted, all projects are enriched.
 
 **Event types:**
 
 ```
 data: {"type":"progress","stage":"Fetching project list","detail":""}
-data: {"type":"progress","stage":"Loading project details","detail":"My App","count":1,"total":42}
+data: {"type":"progress","stage":"Loading project details","detail":"My App","count":1,"total":3}
 data: {"type":"project","project":{...MendixProject}}
-data: {"type":"complete","total":42}
+data: {"type":"complete","total":3}
 data: {"type":"error","error":"Invalid access token","hint":"..."}
 ```
 
-Pagination uses offset-based fetching (`limit=100`, stops on duplicate or short page). Hard cap at offset 1000.
+Pagination uses offset-based fetching (`limit=100`, stops on duplicate or short page). Hard cap at offset 1000. The `projectLimit` applies after pagination — it limits enrichment, not the initial ID fetch.
 
 ---
 

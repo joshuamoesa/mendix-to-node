@@ -73,15 +73,23 @@ mendix-to-node/
 
 | Key | Content |
 |-----|---------|
-| `mendixToNodeSettings` | `{ apiKey: string, userId: string }` |
+| `mendixToNodeSettings` | `{ apiKey: string, userId: string, projectLimit: number, devSettingsEnabled: boolean }` |
 
 Settings are never sent anywhere except directly to Mendix APIs.
+
+`devSettingsEnabled` is written to localStorage immediately when the toggle is flipped (via `patchSettings()`), without requiring "Save Settings". This ensures `loadProjects()` always reads the current toggle state.
 
 ## Pages
 
 ### `/` — Settings (`app/page.tsx`)
 
 Simple form. Saves `mendixToNodeSettings` to localStorage. Shows **Go to Projects →** button once credentials are present.
+
+**Developer Settings** card below the credentials card:
+- Toggle switch (`devSettingsEnabled`) — enables/disables developer overrides. Defaults to `false`.
+- Toggling immediately patches localStorage via `patchSettings()` so the value is available to `loadProjects()` without a full save.
+- When enabled, expands to show the **Project fetch limit** field (`projectLimit`, default `3`).
+- When disabled, the limit is ignored and all projects are fully loaded.
 
 ### `/projects` — Project List (`app/projects/page.tsx`)
 
@@ -134,7 +142,9 @@ POST /api/model → SSE → { type: 'model', model: MendixAppModel }
 
 SSE stream. Fetches all projects for a user then enriches each with SDK repository info.
 
-**Request:** `{ apiKey: string, userId: string }`
+**Request:** `{ apiKey: string, userId: string, projectLimit?: number | null }`
+
+`projectLimit` is sent as a positive integer when `devSettingsEnabled` is `true` in settings, otherwise `null`. The route slices `allProjects` to this limit before the SDK enrichment loop. When `null`, all projects are enriched.
 
 **Events:**
 ```
@@ -369,6 +379,10 @@ The Mendix SDK cannot be bundled by webpack — it uses dynamic `require` intern
 Before committing:
 - [ ] `npm run build` passes with no errors
 - [ ] Settings page saves to localStorage and shows "Go to Projects →"
+- [ ] Developer Settings toggle defaults to off; toggling on expands the section
+- [ ] Toggling Developer Settings immediately updates localStorage (no save required)
+- [ ] With dev toggle ON and limit=3: loading projects enriches only 3, progress shows "(dev limit)"
+- [ ] With dev toggle OFF: loading projects enriches all projects
 - [ ] Projects page loads projects via SSE (progress bar + counter)
 - [ ] Voice command `"fetch projects"` triggers load
 - [ ] Voice command `"export [name] to node"` navigates to export page
