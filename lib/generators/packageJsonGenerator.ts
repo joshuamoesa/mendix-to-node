@@ -18,14 +18,14 @@ export function generatePackageJson(projectName: string): GeneratedFile {
       express: '^4.18.2',
       ejs: '^3.1.9',
       'express-ejs-layouts': '^2.5.1',
-      '@prisma/client': '^5.0.0',
+      '@prisma/client': '^6.0.0',
       'body-parser': '^1.20.2',
       dotenv: '^16.3.1'
     },
     devDependencies: {
       typescript: '^5.0.0',
       'ts-node': '^10.9.1',
-      prisma: '^5.0.0',
+      prisma: '^6.0.0',
       '@types/express': '^4.17.17',
       '@types/ejs': '^3.1.2',
       '@types/node': '^20.0.0',
