@@ -6,9 +6,10 @@ import { MendixProject } from '@/lib/types'
 interface ProjectCardProps {
   project: MendixProject
   onExport: (project: MendixProject) => void
+  hasApp?: boolean
 }
 
-export default function ProjectCard({ project, onExport }: ProjectCardProps) {
+export default function ProjectCard({ project, onExport, hasApp }: ProjectCardProps) {
   const isGit = project.repositoryType === 'git'
   const lastUpdated = project.lastUpdated
     ? new Date(project.lastUpdated).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -71,7 +72,7 @@ export default function ProjectCard({ project, onExport }: ProjectCardProps) {
 
       {/* Actions */}
       <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <a
             href={project.url}
             target="_blank"
@@ -89,6 +90,11 @@ export default function ProjectCard({ project, onExport }: ProjectCardProps) {
               <ArrowRight className="w-3 h-3" />
               Export to Node.js
             </button>
+          )}
+          {hasApp && (
+            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded">
+              Node.js app
+            </span>
           )}
         </div>
       </td>

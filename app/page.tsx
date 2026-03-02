@@ -1,8 +1,15 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Code2, CheckCircle, AlertCircle } from 'lucide-react'
+import { Code2, CheckCircle, AlertCircle, Trash2, RefreshCw } from 'lucide-react'
+
+interface AppInfo {
+  projectId: string
+  running: boolean
+  port: number | null
+  sizeKb: number
+}
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -12,6 +19,15 @@ export default function SettingsPage() {
   const [devSettingsEnabled, setDevSettingsEnabled] = useState(false)
   const [saved, setSaved] = useState(false)
   const [hasSettings, setHasSettings] = useState(false)
+  const [generatedApps, setGeneratedApps] = useState<AppInfo[]>([])
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const fetchGeneratedApps = useCallback(() => {
+    fetch('/api/launch/list')
+      .then(r => r.json())
+      .then((list: AppInfo[]) => setGeneratedApps(list))
+      .catch(() => { /* non-critical */ })
+  }, [])
 
   useEffect(() => {
     const stored = localStorage.getItem('mendixToNodeSettings')
@@ -25,7 +41,24 @@ export default function SettingsPage() {
         if (parsed.apiKey && parsed.userId) setHasSettings(true)
       } catch { /* ignore */ }
     }
-  }, [])
+
+    fetchGeneratedApps()
+  }, [fetchGeneratedApps])
+
+  const handleDeleteApp = async (projectId: string) => {
+    if (!confirm(`Delete the generated Node.js app for project ${projectId}? This cannot be undone.`)) return
+    setDeletingId(projectId)
+    try {
+      await fetch('/api/launch/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId })
+      })
+      fetchGeneratedApps()
+    } catch { /* ignore */ } finally {
+      setDeletingId(null)
+    }
+  }
 
   const patchSettings = (patch: Record<string, unknown>) => {
     const stored = localStorage.getItem('mendixToNodeSettings')
@@ -177,6 +210,85 @@ export default function SettingsPage() {
             </button>
           </div>
         )}
+
+        {/* Generated Apps */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 mt-4 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+            <span className="text-base font-semibold text-slate-700">Generated Apps</span>
+            <button
+              onClick={fetchGeneratedApps}
+              className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className="w-4 h-4" />
+            </button>
+          </div>
+
+          {generatedApps.length === 0 ? (
+            <div className="px-6 py-8 text-center text-sm text-slate-400">
+              No generated apps yet. Export a project to get started.
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 border-b border-slate-100">
+                <tr>
+                  {['Project ID', 'Status', 'Size', 'Actions'].map(h => (
+                    <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {generatedApps.map(app => (
+                  <tr key={app.projectId} className="border-b border-slate-50 last:border-0">
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-xs text-slate-600 truncate block max-w-[200px]" title={app.projectId}>
+                        {app.projectId}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {app.running ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 rounded">
+                          Running :{app.port}
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-500 rounded">
+                          Stopped
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-slate-500">
+                      {app.sizeKb >= 1024 ? `${(app.sizeKb / 1024).toFixed(1)} MB` : `${app.sizeKb} KB`}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => router.push(`/export/${app.projectId}`)}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 transition-colors"
+                        >
+                          {app.running ? 'View' : 'Launch'}
+                        </button>
+                        <button
+                          onClick={() => handleDeleteApp(app.projectId)}
+                          disabled={deletingId === app.projectId}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors disabled:opacity-40"
+                        >
+                          {deletingId === app.projectId ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          Delete
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </div>
   )

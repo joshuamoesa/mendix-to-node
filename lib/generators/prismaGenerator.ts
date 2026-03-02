@@ -5,7 +5,8 @@ function attributeToField(attr: MendixAttribute): string {
     return `  ${attr.name}  Int  @id @default(autoincrement())`
   }
 
-  const prismaType = attr.prismaType
+  // SQLite does not support Decimal — map to Float
+  const prismaType = attr.prismaType === 'Decimal' ? 'Float' : attr.prismaType
   const directives: string[] = []
 
   if (attr.name === 'id') {
@@ -55,12 +56,21 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 `
 
-  const models = userEntities.map(entityToModel).join('\n\n')
+  const entityModels = userEntities.map(entityToModel).join('\n\n')
+
+  // Prisma requires at least one model to generate a client.
+  // Add a placeholder when the project has no user entities.
+  // Note: names starting with _ are reserved in Prisma 5 — do not use them.
+  const placeholder = userEntities.length === 0
+    ? `model AppConfig {\n  id    Int    @id @default(autoincrement())\n  key   String @unique\n  value String\n}\n`
+    : ''
+
+  const models = entityModels || placeholder
 
   return {
     path: 'prisma/schema.prisma',

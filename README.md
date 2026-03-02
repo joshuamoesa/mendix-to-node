@@ -4,7 +4,7 @@
 [![Next.js](https://img.shields.io/badge/Next.js-14-black?style=flat-square)](https://nextjs.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
-Generate a runnable Node.js/Express/Prisma app from any Mendix project — via voice or click.
+Generate a runnable Node.js/Express/Prisma app from any Mendix project — via voice or click. Export, launch, and open the generated app without leaving the browser.
 
 ## Table of Contents
 
@@ -24,7 +24,9 @@ Mendix is a low-code platform that stores application models — domain entities
 
 This tool automates that extraction. It reads a complete Mendix app model over the Platform SDK and generates a working **Node.js + Express + EJS + Prisma** project from it. The primary audience is Mendix presales consultants who need a live demo of a customer's own app running as a standard Node.js service.
 
-The export flow is entirely streaming: a [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) connection shows each stage of model extraction in real time, then code generation runs client-side (pure functions, no network) and the result is packaged into a ZIP download.
+The export flow is entirely streaming: a [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) connection shows each stage of model extraction in real time, then code generation runs client-side (pure functions, no network) and the result is either downloaded as a ZIP or launched directly inside the tool with a single click.
+
+The generated app uses **SQLite** so it requires no database server — `npm install && npm run db:push && npm run dev` is the entire setup.
 
 Voice commands are supported via the [Web Speech API](https://developer.mozilla.org/en-US/docs/Web/API/Web_Speech_API) (Chrome/Safari) and [FluidVoice](https://fluent.ai) Write Mode (macOS dictation), both of which feed into a shared text input with fuzzy project-name matching.
 
@@ -57,6 +59,8 @@ Enter your PAT and User ID. Credentials are saved to `localStorage` and never le
 
 The **Developer Settings** section (toggle to expand) lets you limit how many projects are enriched with SDK details on load. The default is 3, which makes the project list appear much faster during live demos. Disable the toggle to load all projects without a limit. Changes to the toggle take effect immediately — no save required.
 
+The **Generated Apps** section lists every app that has been launched inside the tool, showing its running status and disk size. Apps can be stopped, re-launched (via the export page), or deleted from here.
+
 **Step 2 — Projects (`/projects`)**
 
 Load your project list. Use the search box or voice commands to find a project:
@@ -66,12 +70,24 @@ Load your project list. Use the search box or voice commands to find a project:
 | `fetch projects` | Load project list from Mendix API |
 | `export [name] to node` | Navigate to export for that project |
 | `convert [name]` | Same as above |
+| `open [name]` / `view [name]` / `show [name]` | Open the running app for that project |
 | `search [term]` | Filter the list |
 | `clear` | Clear the search filter |
 
 Project name matching is fuzzy: partial names, token overlap, and Levenshtein distance are all tried. If no confident match is found (score < 0.35), the top three candidates are shown.
 
 Only Git repositories have an **Export to Node.js** button. SVN projects are excluded because the SDK's branch handling for SVN differs and the demo value is lower.
+
+Projects that have a generated app on disk show a green **Node.js app** badge in the actions column.
+
+**Keyboard shortcuts (command bar):**
+
+| Shortcut | Action |
+|----------|--------|
+| `⌘K` / `Ctrl+K` | Focus the command bar |
+| `⌘⇧K` / `Ctrl+Shift+K` | Toggle microphone (Web Speech API) |
+| `Escape` | Blur the command bar |
+| `Enter` | Submit the current command |
 
 **Step 3 — Export (`/export/[projectId]`)**
 
@@ -96,14 +112,15 @@ Once complete, the generated files appear in a tabbed code viewer grouped by cat
 | **Routes** | `src/routes/*.ts` (page routes + entity CRUD routes) |
 | **Config** | `src/app.ts`, `src/db.ts`, `package.json`, `tsconfig.json`, `.env.example`, `README.md` |
 
-Click **Download ZIP** to get all files. The generated app runs with:
+**Download ZIP** saves all files locally. **Launch App** runs the generated app directly inside the tool:
 
-```bash
-npm install
-cp .env.example .env   # add your DATABASE_URL
-npm run db:push
-npm run dev            # starts on port 3001
-```
+1. Files are written to `/tmp/mendix-launched/{projectId}/`
+2. `npm install` runs (streamed progress)
+3. `npx prisma generate` + `npx prisma db push` set up the SQLite database
+4. `ts-node src/app.ts` starts the Express server on port 3001
+5. **Open App →** appears — click to open `http://localhost:3001` in a new tab
+
+**Stop** kills the subprocess. The export page restores the running state if you navigate away and return.
 
 > The generated code is a demo-quality starting point. Review `src/routes/*.ts` for missing authentication and input validation before any production use.
 
@@ -131,7 +148,7 @@ data: {"type":"complete","total":3}
 data: {"type":"error","error":"Invalid access token","hint":"..."}
 ```
 
-Pagination uses offset-based fetching (`limit=100`, stops on duplicate or short page). Hard cap at offset 1000. The `projectLimit` applies after pagination — it limits enrichment, not the initial ID fetch.
+Pagination uses offset-based fetching (`limit=100`, stops on duplicate or short page). Hard cap at offset 1000.
 
 ---
 
@@ -149,15 +166,53 @@ Creates a temporary Mendix working copy and extracts the full app model. Returns
 
 ```
 data: {"type":"progress","stage":"Creating working copy","detail":"..."}
-data: {"type":"progress","stage":"Reading domain model","detail":"3 modules, 12 entities"}
-data: {"type":"progress","stage":"Reading microflows","detail":"8 found"}
-data: {"type":"progress","stage":"Reading pages","detail":"6 found"}
 data: {"type":"model","model":{...MendixAppModel}}
 data: {"type":"complete"}
 data: {"type":"error","error":"..."}
 ```
 
-Extraction limits: 50 microflows, 30 pages. System modules (`System`, `Administration`, `Marketplace`) are skipped automatically.
+---
+
+### `POST /api/launch`
+
+Writes generated files to disk, installs dependencies, sets up the SQLite database, and starts the Express app as a subprocess. Returns a Server-Sent Events stream.
+
+**Request body:** `{ "projectId": "string", "files": GeneratedFile[] }`
+
+**Event types:**
+
+```
+data: {"type":"progress","stage":"Writing files","detail":"..."}
+data: {"type":"progress","stage":"Installing dependencies","detail":"..."}
+data: {"type":"progress","stage":"Generating Prisma client","detail":"..."}
+data: {"type":"progress","stage":"Setting up database","detail":"..."}
+data: {"type":"progress","stage":"Starting app","detail":"..."}
+data: {"type":"ready","port":3001}
+data: {"type":"error","error":"..."}
+```
+
+---
+
+### `POST /api/launch/stop`
+
+Kills the running subprocess for a project. **Body:** `{ "projectId": "string" }`
+
+### `GET /api/launch/status?projectId=x`
+
+Returns `{ "running": boolean, "port": number | null }`.
+
+### `GET /api/launch/list`
+
+Returns an array of all apps in `/tmp/mendix-launched/`:
+```json
+[{ "projectId": "string", "running": boolean, "port": number | null, "sizeKb": number }]
+```
+
+### `DELETE /api/launch/delete`
+
+Kills the process (if running) and recursively deletes `/tmp/mendix-launched/{projectId}/`. **Body:** `{ "projectId": "string" }`
+
+---
 
 ## Security
 
@@ -165,7 +220,9 @@ Credentials (PAT and User ID) are stored in `localStorage` only. They are transm
 
 The generated ZIP is assembled in the browser (via jszip) entirely in memory and is never written to any server.
 
-**On shared computers:** `localStorage` is readable by any JavaScript running on the same origin. Clear your credentials from the Settings page when done.
+Generated apps launched via **Launch App** are written to `/tmp/mendix-launched/` on the local machine only. The `.env` file written there contains `DATABASE_URL=file:./dev.db` (SQLite, local file) and never contains production credentials.
+
+**On shared computers:** `localStorage` is readable by any JavaScript running on the same origin. Clear your credentials from the Settings page when done. Also delete any launched apps from the Generated Apps section if running on shared hardware.
 
 To report a security issue, contact the maintainer directly rather than opening a public GitHub issue.
 

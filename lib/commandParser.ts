@@ -3,6 +3,7 @@ import { MendixProject } from './types'
 export type CommandType =
   | 'fetchProjects'
   | 'exportProject'
+  | 'openApp'
   | 'search'
   | 'clear'
   | 'unknown'
@@ -134,6 +135,37 @@ export function parseCommand(text: string, projects: MendixProject[]): ParsedCom
       } else {
         return {
           type: 'exportProject',
+          projectId: undefined,
+          projectName: nameQuery,
+          suggestions,
+          raw
+        }
+      }
+    }
+  }
+
+  // "open [name]" / "view [name]" / "show [name]"
+  const openPatterns = [
+    /^(?:open|view|show)\s+(.+)$/i,
+  ]
+
+  for (const pattern of openPatterns) {
+    const match = raw.match(pattern)
+    if (match) {
+      const nameQuery = match[1].trim()
+      const { matched, suggestions } = findProject(nameQuery, projects)
+
+      if (matched) {
+        return {
+          type: 'openApp',
+          projectId: matched.projectId,
+          projectName: matched.name,
+          suggestions,
+          raw
+        }
+      } else {
+        return {
+          type: 'openApp',
           projectId: undefined,
           projectName: nameQuery,
           suggestions,

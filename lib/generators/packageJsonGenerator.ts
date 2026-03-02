@@ -17,6 +17,7 @@ export function generatePackageJson(projectName: string): GeneratedFile {
     dependencies: {
       express: '^4.18.2',
       ejs: '^3.1.9',
+      'express-ejs-layouts': '^2.5.1',
       '@prisma/client': '^5.0.0',
       'body-parser': '^1.20.2',
       dotenv: '^16.3.1'
@@ -27,7 +28,8 @@ export function generatePackageJson(projectName: string): GeneratedFile {
       prisma: '^5.0.0',
       '@types/express': '^4.17.17',
       '@types/ejs': '^3.1.2',
-      '@types/node': '^20.0.0'
+      '@types/node': '^20.0.0',
+      '@types/express-ejs-layouts': '^2.5.4'
     }
   }
 
@@ -52,6 +54,9 @@ export function generateTsConfig(): GeneratedFile {
       forceConsistentCasingInFileNames: true,
       resolveJsonModule: true
     },
+    'ts-node': {
+      transpileOnly: true
+    },
     include: ['src/**/*'],
     exclude: ['node_modules', 'dist']
   }
@@ -66,8 +71,8 @@ export function generateTsConfig(): GeneratedFile {
 export function generateEnvExample(): GeneratedFile {
   return {
     path: '.env.example',
-    content: `# Database connection
-DATABASE_URL=postgresql://user:password@localhost:5432/mydb
+    content: `# Database connection (SQLite — no server needed)
+DATABASE_URL=file:./dev.db
 
 # Server port (optional, defaults to 3001)
 PORT=3001

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
 import { Mic, MicOff, Play } from 'lucide-react'
 
 interface VoiceCommandBarProps {
@@ -29,7 +29,12 @@ export default function VoiceCommandBar({ onCommand, feedback, disabled }: Voice
     setHasMicSupport(!!SpeechRecognition)
   }, [])
 
-  const startListening = () => {
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop()
+    setIsListening(false)
+  }, [])
+
+  const startListening = useCallback(() => {
     type SpeechResultItem = { transcript: string }
     type SpeechResult = { [key: number]: SpeechResultItem }
     type SpeechResultList = { [key: number]: SpeechResult; length: number }
@@ -70,12 +75,36 @@ export default function VoiceCommandBar({ onCommand, feedback, disabled }: Voice
 
     recognitionRef.current = recognition
     recognition.start()
-  }
+  }, [onCommand])
 
-  const stopListening = () => {
-    recognitionRef.current?.stop()
-    setIsListening(false)
-  }
+  // ⌘K / Ctrl+K — focus input
+  // ⌘Shift+K / Ctrl+Shift+K — toggle mic
+  // Escape — blur input
+  useEffect(() => {
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'k') {
+        e.preventDefault()
+        if (isListening) {
+          stopListening()
+        } else {
+          startListening()
+        }
+        return
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }
+      if (e.key === 'Escape' && document.activeElement === inputRef.current) {
+        inputRef.current?.blur()
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isListening, startListening, stopListening])
 
   const handleSubmit = () => {
     const trimmed = text.trim()
@@ -96,7 +125,7 @@ export default function VoiceCommandBar({ onCommand, feedback, disabled }: Voice
           <button
             onClick={isListening ? stopListening : startListening}
             disabled={disabled}
-            title={isListening ? 'Stop listening' : 'Start voice input'}
+            title={isListening ? 'Stop listening (⌘⇧K)' : 'Start voice input (⌘⇧K)'}
             className={`p-2 rounded-md transition-colors flex-shrink-0 ${
               isListening
                 ? 'bg-red-100 text-red-600 hover:bg-red-200'
@@ -139,9 +168,9 @@ export default function VoiceCommandBar({ onCommand, feedback, disabled }: Voice
         </div>
       )}
 
-      {/* FluidVoice hint */}
+      {/* Hint */}
       <div className="mt-1 text-xs text-slate-400">
-        Tip: FluidVoice (Write Mode) types directly into this field. Web Speech API works in Chrome/Safari on localhost.
+        ⌘K to focus · ⌘⇧K to toggle mic · FluidVoice (Write Mode) types directly · Web Speech API in Chrome/Safari
       </div>
     </div>
   )

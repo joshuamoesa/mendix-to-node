@@ -20,6 +20,7 @@ export default function ProjectsPage() {
   const [feedback, setFeedback] = useState('')
   const [loadingProgress, setLoadingProgress] = useState({ stage: '', detail: '', count: 0, total: 0 })
   const [searchQuery, setSearchQuery] = useState('')
+  const [appProjectIds, setAppProjectIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     const stored = localStorage.getItem('mendixToNodeSettings')
@@ -29,6 +30,14 @@ export default function ProjectsPage() {
         if (parsed.apiKey && parsed.userId) setHasSettings(true)
       } catch { /* ignore */ }
     }
+
+    // Fetch list of generated apps to show badges
+    fetch('/api/launch/list')
+      .then(r => r.json())
+      .then((list: Array<{ projectId: string }>) => {
+        setAppProjectIds(new Set(list.map(a => a.projectId)))
+      })
+      .catch(() => { /* non-critical */ })
   }, [])
 
   // Apply search filter
@@ -155,6 +164,23 @@ export default function ProjectsPage() {
         }
         break
 
+      case 'openApp':
+        if (cmd.projectId) {
+          if (appProjectIds.has(cmd.projectId)) {
+            // App exists on disk — open it (assume port 3001)
+            window.open('http://localhost:3001', '_blank')
+            setFeedback(`Opening app for "${cmd.projectName}"`)
+          } else {
+            setFeedback(`No Node.js app found for "${cmd.projectName}". Export it first.`)
+          }
+        } else if (cmd.suggestions && cmd.suggestions.length > 0) {
+          const names = cmd.suggestions.map(s => s.name).join(', ')
+          setFeedback(`No exact match for "${cmd.projectName}". Did you mean: ${names}?`)
+        } else {
+          setFeedback(`No project found matching "${cmd.projectName}".`)
+        }
+        break
+
       case 'search':
         setSearchQuery(cmd.searchTerm || '')
         setFeedback(`Filtering by "${cmd.searchTerm}"`)
@@ -166,9 +192,9 @@ export default function ProjectsPage() {
         break
 
       default:
-        setFeedback(`Unknown command: "${text}". Try "fetch projects", "export [name] to node", or "search [term]"`)
+        setFeedback(`Unknown command: "${text}". Try "fetch projects", "export [name] to node", "open [name]", or "search [term]"`)
     }
-  }, [projects, loadProjects, router])
+  }, [projects, loadProjects, router, appProjectIds])
 
   const handleExport = useCallback((project: MendixProject) => {
     router.push(`/export/${project.projectId}`)
@@ -322,6 +348,7 @@ export default function ProjectsPage() {
                       key={project.projectId}
                       project={project}
                       onExport={handleExport}
+                      hasApp={appProjectIds.has(project.projectId)}
                     />
                   ))}
                   {filtered.length === 0 && (

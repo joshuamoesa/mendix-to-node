@@ -2,7 +2,7 @@ import { MendixPage, GeneratedFile } from '../types'
 
 export function generateLayout(pages: MendixPage[], projectName: string): GeneratedFile {
   const navLinks = pages.slice(0, 30).map(p =>
-    `    <a href="/${p.name.toLowerCase()}" class="nav-link"><%= title === '${p.title || p.name}' ? '→ ' : '' %>${p.title || p.name}</a>`
+    `    <a href="/${p.name.toLowerCase()}" class="nav-link"><%= locals.title === '${p.title || p.name}' ? '→ ' : '' %>${p.title || p.name}</a>`
   ).join('\n')
 
   const content = `<!DOCTYPE html>
@@ -10,7 +10,7 @@ export function generateLayout(pages: MendixPage[], projectName: string): Genera
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title><%= title %> — ${projectName}</title>
+  <title><%= locals.title || 'App' %> — ${projectName}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #333; }
