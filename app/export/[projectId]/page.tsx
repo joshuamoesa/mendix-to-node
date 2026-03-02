@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, Download, RefreshCw, AlertCircle, CheckCircle, Play, Square, ExternalLink } from 'lucide-react'
 import Link from 'next/link'
 
+import VoiceCommandBar from '@/components/VoiceCommandBar'
 import { MendixAppModel, GeneratedFile, FileGroup } from '@/lib/types'
 import { generatePrismaSchema } from '@/lib/generators/prismaGenerator'
 import { generateTypes } from '@/lib/generators/typesGenerator'
@@ -279,6 +280,40 @@ export default function ExportPage() {
     setLaunchPort(null)
   }, [projectId])
 
+  const [voiceFeedback, setVoiceFeedback] = useState<string>('')
+
+  const handleCommand = useCallback((text: string) => {
+    const cmd = text.trim().toLowerCase()
+    if (/^(launch( app)?|start( app)?)$/.test(cmd)) {
+      if (status !== 'ready') {
+        setVoiceFeedback('App is still loading — wait until export is complete.')
+      } else if (launchStatus === 'launching') {
+        setVoiceFeedback('Already launching...')
+      } else if (launchStatus === 'running') {
+        setVoiceFeedback('App is already running.')
+      } else {
+        setVoiceFeedback('Launching app...')
+        handleLaunch()
+      }
+    } else if (/^stop( app)?$/.test(cmd)) {
+      if (launchStatus === 'running') {
+        setVoiceFeedback('Stopping app...')
+        handleStop()
+      } else {
+        setVoiceFeedback('App is not running.')
+      }
+    } else if (/^open( app)?$/.test(cmd)) {
+      if (launchStatus === 'running' && launchPort) {
+        window.open(`http://localhost:${launchPort}`, '_blank')
+        setVoiceFeedback(`Opening http://localhost:${launchPort}`)
+      } else {
+        setVoiceFeedback('App is not running. Launch it first.')
+      }
+    } else {
+      setVoiceFeedback(`Unknown command: "${text}"`)
+    }
+  }, [status, launchStatus, launchPort, handleLaunch, handleStop])
+
   const handleGroupClick = (group: FileGroup) => {
     setActiveGroup(group.category)
     if (group.files.length > 0) setActiveFile(group.files[0])
@@ -510,6 +545,17 @@ export default function ExportPage() {
               </>
             )}
           </main>
+        </div>
+      )}
+
+      {/* Voice command bar */}
+      {status === 'ready' && (
+        <div className="px-6 py-3 bg-slate-900 border-t border-slate-800 flex-shrink-0">
+          <VoiceCommandBar
+            onCommand={handleCommand}
+            feedback={voiceFeedback}
+            disabled={launchStatus === 'launching'}
+          />
         </div>
       )}
     </div>

@@ -144,7 +144,7 @@ export default function VoiceCommandBar({ onCommand, feedback, disabled }: Voice
           onChange={e => setText(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={isListening ? 'Listening...' : 'Type or speak a command — "fetch projects", "export [name] to node"'}
+          placeholder={isListening ? 'Listening...' : 'Type or speak a command — "fetch projects", "export [name] to node", "launch app", "stop", "open app"'}
           className={`flex-1 text-sm border-0 outline-none bg-transparent text-slate-800 placeholder-slate-400 ${
             isListening ? 'placeholder-red-400' : ''
           }`}
