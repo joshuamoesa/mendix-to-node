@@ -148,6 +148,15 @@ Three UI states: `loading` → `ready` → `error`.
 - When `launchStatus === 'running'`: **Open App →** (green, opens `http://localhost:{port}`) + **Stop** (red) replace the Launch button
 - **Left sidebar:** category tabs (Data / Logic / Pages / Routes / Config) + file list
 - **Code viewer:** `<pre>` with dark background (`bg-gray-900 text-green-300`)
+- **Voice command bar** — pinned to the bottom of the page. Handles:
+
+| Command | Action |
+|---------|--------|
+| `"launch app"` / `"launch"` / `"start app"` | Call `handleLaunch()` |
+| `"stop"` / `"stop app"` | Call `handleStop()` |
+| `"open app"` / `"open"` | Open `http://localhost:{port}` in new tab |
+
+The bar is disabled while `launchStatus === 'launching'`. Feedback is shown inline for edge cases (already running, still loading, unknown command). `⌘K` / `⌘⇧K` shortcuts work the same as on the projects page.
 
 **Launch state machine:** `idle` → `launching` → `running` → `stopped` (or `error`). On mount, `GET /api/launch/status?projectId=x` restores running state if the user navigated away and back.
 
