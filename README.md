@@ -59,7 +59,7 @@ Enter your PAT and User ID. Credentials are saved to `localStorage` and never le
 
 The **Developer Settings** section (toggle to expand) lets you limit how many projects are enriched with SDK details on load. The default is 3, which makes the project list appear much faster during live demos. Disable the toggle to load all projects without a limit. Changes to the toggle take effect immediately — no save required.
 
-The **Generated Apps** section lists every app that has been launched inside the tool, showing its running status and disk size. Apps can be stopped, re-launched (via the export page), or deleted from here.
+The **Generated Apps** section lists every app that has been launched inside the tool, showing its project ID, running status (with port number), and disk size. Use the **Delete** button on any row to stop the app (if running) and permanently remove its files from `/tmp/mendix-launched/`. Apps can also be re-launched via the export page.
 
 **Step 2 — Projects (`/projects`)**
 

@@ -94,6 +94,8 @@ Settings are never sent anywhere except directly to Mendix APIs.
 
 Simple form. Saves `mendixToNodeSettings` to localStorage. Shows **Go to Projects →** button once credentials are present.
 
+**Layout:** The outer container is `max-w-2xl`. The header, credentials card, Developer Settings card, and Go to Projects button are wrapped in a `max-w-md mx-auto` inner div so they stay narrow and centred. The Generated Apps card sits outside that inner wrapper and spans the full `max-w-2xl` width — this gives the four-column table enough room to render without clipping the Actions column.
+
 **Developer Settings** card below the credentials card:
 - Toggle switch (`devSettingsEnabled`) — enables/disables developer overrides. Defaults to `false`.
 - Toggling immediately patches localStorage via `patchSettings()`.

@@ -87,7 +87,8 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-2xl">
+        <div className="max-w-md mx-auto">
         {/* Header */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-14 h-14 bg-indigo-600 rounded-xl mb-4">
@@ -211,6 +212,8 @@ export default function SettingsPage() {
           </div>
         )}
 
+        </div>{/* end max-w-md */}
+
         {/* Generated Apps */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 mt-4 overflow-hidden">
           <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
@@ -243,7 +246,7 @@ export default function SettingsPage() {
                 {generatedApps.map(app => (
                   <tr key={app.projectId} className="border-b border-slate-50 last:border-0">
                     <td className="px-4 py-3">
-                      <span className="font-mono text-xs text-slate-600 truncate block max-w-[200px]" title={app.projectId}>
+                      <span className="font-mono text-xs text-slate-600 truncate block max-w-[160px]" title={app.projectId}>
                         {app.projectId}
                       </span>
                     </td>
