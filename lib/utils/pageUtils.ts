@@ -1,5 +1,13 @@
 import { MendixPage } from '../types'
 
+/** Return the lowercase plural form of an entity name, e.g. "Skills" → "skills", "Person" → "persons" */
+export function pluralize(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('s')) return lower
+  if (lower.endsWith('y')) return lower.slice(0, -1) + 'ies'
+  return lower + 's'
+}
+
 export function navLabel(page: MendixPage): string {
   const base = (page.title && page.title !== page.name) ? page.title : page.name
   return base

@@ -1,4 +1,5 @@
 import { MendixEntity, MendixAttribute, GeneratedFile } from '../types'
+import { pluralize } from '../utils/pageUtils'
 
 function sanitizeFieldName(name: string): string {
   // Prisma field names cannot start with underscore
@@ -23,7 +24,7 @@ function attributeToField(attr: MendixAttribute): string {
   return `  ${fieldName}  ${prismaType}${attr.isEnumeration ? ' // enum: ' + (attr.enumerationName || 'unknown') : ''}  ${directives.join(' ')}`
 }
 
-function entityToModel(entity: MendixEntity): string {
+function entityToModel(entity: MendixEntity, allEntities: MendixEntity[]): string {
   const lines: string[] = [`model ${entity.name} {`]
 
   // Add auto-incremented id if no auto-number attribute
@@ -37,14 +38,22 @@ function entityToModel(entity: MendixEntity): string {
     lines.push(attributeToField(attr))
   }
 
-  // Add relation fields for associations
+  // Forward relation fields (this entity owns the association)
   for (const assoc of entity.associations) {
-    const targetModel = assoc.targetEntityName
-    if (assoc.type === 'one-to-many' && assoc.owner === 'source') {
-      // This entity "owns" the FK
-      lines.push(`  ${assoc.name.toLowerCase()}s  ${targetModel}[]`)
-    } else if (assoc.type === 'many-to-many') {
-      lines.push(`  ${assoc.name.toLowerCase()}s  ${targetModel}[]`)
+    const fieldName = pluralize(assoc.targetEntityName)
+    if (assoc.type === 'many-to-many' || (assoc.type === 'one-to-many' && assoc.owner === 'source')) {
+      lines.push(`  ${fieldName}  ${assoc.targetEntityName}[]`)
+    }
+  }
+
+  // Back-references: other entities' many-to-many associations that point TO this entity.
+  // Prisma requires both sides to be declared for implicit M2M.
+  for (const other of allEntities) {
+    if (other.name === entity.name) continue
+    for (const assoc of other.associations) {
+      if (assoc.type === 'many-to-many' && assoc.targetEntityName.toLowerCase() === entity.name.toLowerCase()) {
+        lines.push(`  ${pluralize(other.name)}  ${other.name}[]`)
+      }
     }
   }
 
@@ -68,7 +77,7 @@ datasource db {
 }
 `
 
-  const entityModels = userEntities.map(entityToModel).join('\n\n')
+  const entityModels = userEntities.map(e => entityToModel(e, userEntities)).join('\n\n')
 
   // Prisma requires at least one model to generate a client.
   // Add a placeholder when the project has no user entities.

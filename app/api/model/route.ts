@@ -111,11 +111,13 @@ async function extractEntities(model: any): Promise<MendixEntity[]> {
                 await assoc.load()
                 const targetQName = assoc.child?.qualifiedName || ''
                 const targetParts = targetQName.split('.')
+                const assocType: 'many-to-many' | 'one-to-many' =
+                  String(assoc.type || '').includes('ReferenceSet') ? 'many-to-many' : 'one-to-many'
                 associations.push({
                   name: assoc.name,
                   targetEntityName: targetParts[1] || targetQName,
                   targetModuleName: targetParts[0] || '',
-                  type: 'one-to-many',
+                  type: assocType,
                   owner: 'source'
                 })
               } catch (_) { /* skip */ }
