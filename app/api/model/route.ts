@@ -307,7 +307,17 @@ async function extractPages(model: any): Promise<MendixPage[]> {
 
         const widgets: MendixWidget[] = []
         try {
-          for (const widget of page.layoutCall?.layout?.content?.widgets || page.widgets || []) {
+          // Page content lives in layoutCall.arguments[i].widgets, not in
+          // the layout document itself (layoutCall.layout.content.widgets).
+          const rawWidgets: any[] = []
+          for (const arg of page.layoutCall?.arguments || []) {
+            for (const w of arg?.widgets || []) {
+              rawWidgets.push(w)
+            }
+          }
+          // Fallback for pages that don't use a layout
+          const source = rawWidgets.length > 0 ? rawWidgets : (page.widgets || [])
+          for (const widget of source) {
             try {
               widgets.push(extractWidgetTree(widget))
             } catch (_) { /* skip */ }

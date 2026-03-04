@@ -20,17 +20,35 @@ ${i}</form>`
     case 'DataGrid': {
       const entity = widget.entityName || 'items'
       const entityVar = entity.toLowerCase()
-      return `${i}<table class="table">
-${i2}<thead><tr><th>${entity}</th><th>Actions</th></tr></thead>
-${i2}<tbody>
-${i2}  <% ${entityVar}List.forEach(function(item) { %>
-${i2}  <tr>
-${i2}    <td><%= item.id %></td>
-${i2}    <td><a href="/${entityVar}/<%= item.id %>">View</a></td>
-${i2}  </tr>
-${i2}  <% }) %>
-${i2}</tbody>
-${i}</table>`
+
+      // Extract up to two child attributes for primary/secondary display
+      const attrChildren = widget.children.filter(c => c.attributeName)
+      const primaryAttr = attrChildren[0]?.attributeName || null
+      const secondaryAttr = attrChildren[1]?.attributeName || null
+      const secondaryLabel = attrChildren[1]?.caption || secondaryAttr || ''
+
+      const primaryExpr = primaryAttr
+        ? `item.${primaryAttr} || item.id`
+        : `item.id`
+      const avatarExpr = primaryAttr
+        ? `String(item.${primaryAttr} || '?')[0].toUpperCase()`
+        : `String(item.id || '?')[0].toUpperCase()`
+
+      const subLine = secondaryAttr
+        ? `\n${i2}    <div class="mx-list-sub">${secondaryLabel}: <%= item.${secondaryAttr} %></div>`
+        : ''
+
+      return `${i}<div class="mx-list">
+${i2}<% ${entityVar}List.forEach(function(item) { %>
+${i2}<div class="mx-list-row">
+${i2}  <div class="mx-avatar"><%= ${avatarExpr} %></div>
+${i2}  <div class="mx-list-body">
+${i2}    <div class="mx-list-title"><%= ${primaryExpr} %></div>${subLine}
+${i2}  </div>
+${i2}  <span class="mx-chevron">&#8250;</span>
+${i2}</div>
+${i2}<% }) %>
+${i}</div>`
     }
 
     case 'TextBox': {
