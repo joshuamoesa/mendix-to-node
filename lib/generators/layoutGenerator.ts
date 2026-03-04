@@ -27,17 +27,17 @@ export function generateLayout(pages: MendixPage[], projectName: string): Genera
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8f8f8; color: #333; padding-top: 48px; }
 
     /* Navbar */
-    .mx-navbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: #020557; display: flex; align-items: center; padding: 0 1.5rem; z-index: 100; }
-    .mx-logo { width: 32px; height: 32px; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.75rem; color: #020557; flex-shrink: 0; }
+    .mx-navbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: linear-gradient(to bottom, #264ae5, #1f3db8); display: flex; align-items: center; padding: 0 1.5rem; z-index: 100; }
+    .mx-logo { width: 32px; height: 32px; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.75rem; color: #264ae5; flex-shrink: 0; }
     .mx-nav-links { flex: 1; display: flex; justify-content: center; gap: 2rem; }
     .mx-nav-link { color: #fff; text-decoration: none; font-size: 14px; display: flex; align-items: center; gap: 0.4rem; opacity: 0.9; }
     .mx-nav-link:hover { opacity: 1; text-decoration: underline; }
     .mx-locale { color: rgba(255,255,255,0.8); font-size: 13px; }
 
     /* Page */
-    .container { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
-    h1 { color: #0b1354; font-size: 2rem; font-weight: 800; margin-bottom: 0.25rem; }
-    .container > p { color: #264ae5; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    .container { padding: 1.5rem 2rem; }
+    h1 { color: #0a1326; font-size: 31px; font-weight: 600; margin-bottom: 0.25rem; }
+    .mx-subtitle { color: #6c717e; font-size: 0.875rem; margin-bottom: 1.5rem; }
 
     /* Card list */
     .mx-list { display: flex; flex-direction: column; gap: 8px; }

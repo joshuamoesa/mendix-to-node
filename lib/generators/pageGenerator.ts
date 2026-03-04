@@ -1,13 +1,29 @@
 import { MendixPage, MendixWidget, GeneratedFile } from '../types'
 
-function widgetToHtml(widget: MendixWidget, indent: string, routePath: string = ''): string {
+// Collect captions of the first N Text/Label widgets in document order.
+// Used by generateEjsTemplate to promote them to <h1> / .mx-subtitle.
+function extractHeadings(widgets: MendixWidget[], max = 2): string[] {
+  const results: string[] = []
+  for (const w of widgets) {
+    if (results.length >= max) break
+    if ((w.kind === 'Text' || w.kind === 'Label') && w.caption) {
+      results.push(w.caption)
+    }
+    if (w.children.length > 0) {
+      results.push(...extractHeadings(w.children, max - results.length))
+    }
+  }
+  return results
+}
+
+function widgetToHtml(widget: MendixWidget, indent: string, routePath: string = '', promotedCaptions: Set<string> = new Set()): string {
   const i = indent
   const i2 = indent + '  '
 
   switch (widget.kind) {
     case 'DataView': {
       const formEntity = widget.entityName || 'entity'
-      const children = widget.children.map(c => widgetToHtml(c, i2, routePath)).filter(Boolean).join('\n')
+      const children = widget.children.map(c => widgetToHtml(c, i2, routePath, promotedCaptions)).filter(Boolean).join('\n')
       const actionPath = routePath || formEntity.toLowerCase()
       return `${i}<form method="POST" action="/${actionPath}/save">
 ${i2}<h2>${widget.caption || formEntity}</h2>
@@ -112,24 +128,33 @@ ${i}</div>`
 
     case 'Label':
     case 'Text':
+      if (promotedCaptions.has(widget.caption || '')) return ''
       return `${i}<p>${widget.caption || ''}</p>`
 
     case 'Container': {
-      const children = widget.children.map(c => widgetToHtml(c, i2, routePath)).filter(Boolean).join('\n')
+      const children = widget.children.map(c => widgetToHtml(c, i2, routePath, promotedCaptions)).filter(Boolean).join('\n')
       return children ? `${i}<div>\n${children}\n${i}</div>` : ''
     }
 
     default:
       return widget.children.length > 0
-        ? widget.children.map(c => widgetToHtml(c, i, routePath)).filter(Boolean).join('\n')
+        ? widget.children.map(c => widgetToHtml(c, i, routePath, promotedCaptions)).filter(Boolean).join('\n')
         : `${i}<!-- ${widget.rawType} -->`
   }
 }
 
 function generateEjsTemplate(page: MendixPage): string {
-  const title = page.title || page.name
   const routePath = page.name.toLowerCase()
-  let body = page.widgets.map(w => widgetToHtml(w, '  ', routePath)).filter(Boolean).join('\n\n')
+
+  // Promote the first two Text/Label captions to <h1> and .mx-subtitle so the
+  // generated page matches the Atlas visual hierarchy instead of showing the
+  // internal page name as the heading.
+  const headings = extractHeadings(page.widgets)
+  const h1Text = headings[0] || page.title || page.name
+  const subtitleText = headings.length >= 2 ? headings[1] : null
+  const promotedCaptions = new Set(headings.slice(0, 2).filter(Boolean))
+
+  let body = page.widgets.map(w => widgetToHtml(w, '  ', routePath, promotedCaptions)).filter(Boolean).join('\n\n')
 
   // CustomWidget (DataGrid 2, ListView, etc.) is opaque to the SDK and renders as a comment.
   // If the page has a resolved entity, replace the first such placeholder with a dynamic
@@ -163,8 +188,10 @@ function generateEjsTemplate(page: MendixPage): string {
     body = body.replace('<!-- CustomWidget -->', fallbackTable)
   }
 
+  const subtitleHtml = subtitleText ? `\n  <p class="mx-subtitle">${subtitleText}</p>` : ''
+
   return `<div class="container">
-  <h1>${title}</h1>
+  <h1>${h1Text}</h1>${subtitleHtml}
 
 ${body || '  <!-- TODO: page content -->'}
 </div>`

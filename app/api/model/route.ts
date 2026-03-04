@@ -285,12 +285,14 @@ async function extractWidgetTree(widget: any): Promise<MendixWidget> {
     } catch (_) { /* skip */ }
   }
 
-  // Try to get entity from data source (every level is a lazy proxy)
+  // Try to get entity from data source (every level is a lazy proxy).
+  // SDK v5: DataSource exposes entityQualifiedName directly; DirectEntityRef
+  // uses entityQualifiedName (not qualifiedName).
   try {
     if (widget?.dataSource) { try { await widget.dataSource.load() } catch (_) { /* skip */ } }
-    const dsEntity = widget?.dataSource?.entity
-    if (dsEntity) { try { await dsEntity.load() } catch (_) { /* skip */ } }
-    const entityQName = dsEntity?.qualifiedName
+    const entityQName = widget?.dataSource?.entityQualifiedName
+      || widget?.dataSource?.entityRef?.entityQualifiedName
+      || widget?.dataSource?.entity?.qualifiedName
       || widget?.entity?.qualifiedName
       || widget?.entityPath
     if (entityQName) {
@@ -310,22 +312,20 @@ async function extractWidgetTree(widget: any): Promise<MendixWidget> {
           if (!val) continue
           try { await val.load() } catch (_) { /* skip */ }
 
-          // Direct entityRef on the value
+          // entityRef on the value — SDK v5 DirectEntityRef uses entityQualifiedName
           if (val.entityRef) {
             try { await val.entityRef.load() } catch (_) { /* skip */ }
-            const qname = val.entityRef?.qualifiedName
+            const qname = val.entityRef?.entityQualifiedName || val.entityRef?.qualifiedName
             if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
           }
 
-          // dataSource on the value
+          // dataSource on the value — DataSource exposes entityQualifiedName directly
           if (val.dataSource) {
             try { await val.dataSource.load() } catch (_) { /* skip */ }
-            const dsEntity = val.dataSource?.entity
-            if (dsEntity) {
-              try { await dsEntity.load() } catch (_) { /* skip */ }
-              const qname = dsEntity?.qualifiedName
-              if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
-            }
+            const qname = val.dataSource?.entityQualifiedName
+              || val.dataSource?.entityRef?.entityQualifiedName
+              || val.dataSource?.entity?.qualifiedName
+            if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
           }
 
           // Nested objects (one level deep) — e.g. datasource property holds a WidgetObject
@@ -340,17 +340,15 @@ async function extractWidgetTree(widget: any): Promise<MendixWidget> {
                   try { await nval.load() } catch (_) { /* skip */ }
                   if (nval.entityRef) {
                     try { await nval.entityRef.load() } catch (_) { /* skip */ }
-                    const qname = nval.entityRef?.qualifiedName
+                    const qname = nval.entityRef?.entityQualifiedName || nval.entityRef?.qualifiedName
                     if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
                   }
                   if (nval.dataSource) {
                     try { await nval.dataSource.load() } catch (_) { /* skip */ }
-                    const dsE = nval.dataSource?.entity
-                    if (dsE) {
-                      try { await dsE.load() } catch (_) { /* skip */ }
-                      const qname = dsE?.qualifiedName
-                      if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
-                    }
+                    const qname = nval.dataSource?.entityQualifiedName
+                      || nval.dataSource?.entityRef?.entityQualifiedName
+                      || nval.dataSource?.entity?.qualifiedName
+                    if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
                   }
                 } catch (_) { /* skip */ }
               }

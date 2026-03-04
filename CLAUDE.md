@@ -218,7 +218,7 @@ SSE stream. Creates a Mendix working copy, extracts domain model + microflows + 
 - Every SDK object is a lazy proxy; `.load()` must be called before reading any property
 - **DynamicText**: text content is in `widget.content.template.translations[0].text`, not `widget.caption`
 - **LayoutGrid**: children are in `widget.rows[i].columns[j].widgets` — the standard `widget.widgets` / `widget.containedWidgets` sources are empty for this widget type
-- **CustomWidget** (Marketplace widgets like DataGrid 2, ListView): entity bindings scanned from `widget.object.properties[i].value.entityRef` and `value.dataSource.entity`. Columns and full datasource config are opaque and not accessible through the SDK.
+- **CustomWidget** (Marketplace widgets like DataGrid 2, ListView): entity bindings scanned from `widget.object.properties[i].value`. SDK v5 uses `DirectEntityRef.entityQualifiedName` (not `.qualifiedName`) and `DataSource.entityQualifiedName` (not `.entity.qualifiedName`). Columns and full datasource config are opaque and not accessible through the SDK.
 - **Entity name fallback**: if no entity is found in the widget tree, `extractPages` matches the page name as a substring against the list of known entity names (e.g. `Person_Overview` → `Person`). This covers projects that use Marketplace custom widgets exclusively.
 
 **Critical SDK patterns:**
@@ -405,6 +405,7 @@ All generators are **pure functions** — no network calls, no side effects. The
 - When `page.entityName` is set, the route generates `prisma.{entity}.findMany()` for GET; otherwise it generates `const itemList: unknown[] = []` to avoid a runtime crash on pages with no resolved entity
 - **DataGrid** and **ListView** are separate switch cases in `widgetToHtml`. DataGrid renders an HTML `<table>` with column headers and Edit/Delete/New actions. ListView renders avatar cards.
 - **CustomWidget fallback table**: `generateEjsTemplate` post-processes the widget HTML — if the page has a resolved entity and the output contains `<!-- CustomWidget -->` (Marketplace DataGrid 2 / ListView), it replaces the first occurrence with a dynamic EJS table that derives column headers from `Object.keys(entityList[0])` at runtime. This gracefully handles opaque SDK widget types while still rendering the actual Prisma data.
+- **Heading promotion**: `extractHeadings()` collects the first two `Text`/`Label` widget captions from the page in document order. `generateEjsTemplate` uses the first as the `<h1>` and the second (if present) as `<p class="mx-subtitle">`. Both are added to a `promotedCaptions` set passed to `widgetToHtml` so those widgets return `''` instead of duplicating as `<p>` tags in the body. This ensures the generated heading text comes from the DynamicText content (e.g. "Moesa files") rather than the internal Mendix page name (e.g. "Home_Web").
 - Always generates `views/error.ejs` (used by route error handlers)
 - Entity routes → REST CRUD: GET all, GET /:id, POST, PUT /:id, DELETE /:id
 
@@ -545,6 +546,9 @@ The Mendix SDK cannot be bundled by webpack — it uses dynamic `require` intern
 
 **CustomWidget shows as `<!-- CustomWidget -->` with no data**
 - Marketplace custom widgets (DataGrid 2, ListView, etc.) are opaque to the SDK. The page generator automatically replaces `<!-- CustomWidget -->` with a dynamic fallback table when `page.entityName` is known. If the entity is also unknown, the page will have no data-rendering content — this is expected and the page-name fallback matching in `extractPages` is the mitigation.
+
+**CustomWidget entity is null even though entity binding is configured in Studio Pro**
+- The SDK v5 uses `DirectEntityRef.entityQualifiedName` (not `.qualifiedName`) and `DataSource.entityQualifiedName` (not `.entity.qualifiedName`). The extraction code in `extractWidgetTree` uses both paths — if you add new extraction paths, always use `.entityQualifiedName` for `EntityRef` and `DataSource` objects.
 
 **Prisma schema error: field name starts with `_`**
 - Some Mendix attribute names start with `_` (e.g. `_showEmail`). Prisma rejects these. `sanitizeFieldName()` in `prismaGenerator.ts` strips leading underscores. If a new SDK attribute exposes a similar name, the same function will handle it automatically.
