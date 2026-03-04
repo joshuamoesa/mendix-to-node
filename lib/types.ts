@@ -13,7 +13,7 @@ export interface MendixProject {
 }
 
 // Attribute type mapping
-export type PrismaType = 'String' | 'Int' | 'Decimal' | 'Boolean' | 'DateTime'
+export type PrismaType = 'String' | 'Int' | 'Float' | 'Decimal' | 'Boolean' | 'DateTime'
 export type TsType = 'string' | 'number' | 'boolean' | 'Date'
 
 export interface MendixAttribute {

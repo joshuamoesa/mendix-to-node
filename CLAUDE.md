@@ -68,6 +68,8 @@ mendix-to-node/
     ├── commandParser.ts                # parseCommand() with fuzzy matching
     ├── expressionTranslator.ts         # Mendix expression → JS translator
     ├── launchStore.ts                  # Module-level Map of running subprocesses
+    ├── utils/
+    │   └── pageUtils.ts               # isNavPage(), navLabel() — shared by layoutGenerator + appGenerator
     └── generators/
         ├── prismaGenerator.ts          # → prisma/schema.prisma (SQLite)
         ├── typesGenerator.ts           # → src/types.ts
@@ -208,9 +210,16 @@ SSE stream. Creates a Mendix working copy, extracts domain model + microflows + 
 ```
 
 **Extraction stages:**
-1. `extractEntities(model)` — loads all entities, skips `System`/`Administration`/`Marketplace` modules
+1. `extractEntities(model)` — iterates `model.allModules()` → `mod.domainModel.load()` → `domainModel.entities`; skips `System`/`Administration`/`Marketplace` modules. **`model.allEntities()` does not exist in SDK v5** — entities are only accessible through the module hierarchy.
 2. `extractMicroflows(model)` — loads up to 50 microflows, builds node graph from `objectCollection.objects` + `mf.flows`
-3. `extractPages(model)` — loads up to 30 pages, walks widget tree recursively
+3. `extractPages(model, entities)` — loads up to 30 pages, walks widget tree recursively, passes entity list for name-based fallback matching
+
+**`extractWidgetTree` — widget traversal details:**
+- Every SDK object is a lazy proxy; `.load()` must be called before reading any property
+- **DynamicText**: text content is in `widget.content.template.translations[0].text`, not `widget.caption`
+- **LayoutGrid**: children are in `widget.rows[i].columns[j].widgets` — the standard `widget.widgets` / `widget.containedWidgets` sources are empty for this widget type
+- **CustomWidget** (Marketplace widgets like DataGrid 2, ListView): entity bindings scanned from `widget.object.properties[i].value.entityRef` and `value.dataSource.entity`. Columns and full datasource config are opaque and not accessible through the SDK.
+- **Entity name fallback**: if no entity is found in the widget tree, `extractPages` matches the page name as a substring against the list of known entity names (e.g. `Person_Overview` → `Person`). This covers projects that use Marketplace custom widgets exclusively.
 
 **Critical SDK patterns:**
 - Every SDK object must have `.load()` called before accessing properties (lazy proxies — silent failure otherwise)
@@ -253,6 +262,20 @@ Returns `[]` if the base directory doesn't exist.
 ### `DELETE /api/launch/delete`
 
 Body: `{ projectId: string }`. Kills the process (if running), removes from `runningApps`, then `rmSync` the app directory. Returns `{ deleted: true }`.
+
+## lib/utils/pageUtils.ts
+
+Shared utilities used by both `layoutGenerator.ts` and `appGenerator.ts`:
+
+```typescript
+isNavPage(name: string): boolean
+```
+Returns `false` for pages whose names suggest they are not top-level navigation destinations: names containing `popup`, ending in `_logo`, ending in `_newedit` / `newedit`, or ending in `_view` (but not `_overview`). Used to filter the navbar links and to pick the root redirect target.
+
+```typescript
+navLabel(page: MendixPage): string
+```
+Strips common Mendix page name suffixes (`_Overview`, `_Web`) and underscores to produce a human-readable navbar label.
 
 ## lib/launchStore.ts
 
@@ -344,6 +367,7 @@ All generators are **pure functions** — no network calls, no side effects. The
 - `Decimal` mapped to `Float` (SQLite has no Decimal type in Prisma)
 - AutoNumber attrs → `@id @default(autoincrement())`
 - Associations → Prisma relation fields
+- `sanitizeFieldName()` strips leading underscores from field names — Prisma rejects names starting with `_` (e.g. Mendix's `_showEmail` becomes `showEmail`)
 
 ### `typesGenerator.ts`
 `generateTypes(entities: MendixEntity[]): GeneratedFile`
@@ -378,6 +402,9 @@ All generators are **pure functions** — no network calls, no side effects. The
 - EJS templates are plain content (no `block/end` wrappers) — `express-ejs-layouts` injects them into `views/layout.ejs` via `<%- body %>`
 - Form actions use the page's route path (e.g. `/{pageName}/save`), not the entity path
 - Routes use `import { prisma } from '../db'` (singleton)
+- When `page.entityName` is set, the route generates `prisma.{entity}.findMany()` for GET; otherwise it generates `const itemList: unknown[] = []` to avoid a runtime crash on pages with no resolved entity
+- **DataGrid** and **ListView** are separate switch cases in `widgetToHtml`. DataGrid renders an HTML `<table>` with column headers and Edit/Delete/New actions. ListView renders avatar cards.
+- **CustomWidget fallback table**: `generateEjsTemplate` post-processes the widget HTML — if the page has a resolved entity and the output contains `<!-- CustomWidget -->` (Marketplace DataGrid 2 / ListView), it replaces the first occurrence with a dynamic EJS table that derives column headers from `Object.keys(entityList[0])` at runtime. This gracefully handles opaque SDK widget types while still rendering the actual Prisma data.
 - Always generates `views/error.ejs` (used by route error handlers)
 - Entity routes → REST CRUD: GET all, GET /:id, POST, PUT /:id, DELETE /:id
 
@@ -385,10 +412,14 @@ All generators are **pure functions** — no network calls, no side effects. The
 `generateLayout(pages, projectName): GeneratedFile`
 - Generates `views/layout.ejs` with `<%- body %>` for `express-ejs-layouts`
 - Self-contained CSS (no external dependencies in generated app)
+- Imports `isNavPage` and `navLabel` from `lib/utils/pageUtils.ts`
+- Nav pages are sorted so pages whose name starts with `home` (case-insensitive) appear first
 
 ### `appGenerator.ts`
 `generateAppEntry(entities, pages): GeneratedFile` → `src/app.ts`
 `generateDbSingleton(): GeneratedFile` → `src/db.ts`
+- Imports `isNavPage` from `lib/utils/pageUtils.ts`
+- Root redirect (`/`) goes to the first home-sorted nav page, not `pages[0]` (which could be a popup page)
 
 Generated `src/app.ts` includes:
 - `import 'dotenv/config'` as first line (loads `.env` so `DATABASE_URL` is available to Prisma)
@@ -500,8 +531,26 @@ The Mendix SDK cannot be bundled by webpack — it uses dynamic `require` intern
 **"Cannot find module 'mendixplatformsdk'"**
 - Run `npm install` — the SDK must be present in `node_modules`
 
+**`model.allEntities is not a function`**
+- `model.allEntities()` does not exist in Mendix Platform SDK v5. Entities must be accessed through the module hierarchy: `model.allModules()` → `mod.domainModel.load()` → `domainModel.entities`.
+
 **Entity shows no attributes**
 - SDK lazy proxy issue. Every object needs `.load()` before property access. Check `extractEntities()` in `app/api/model/route.ts`.
+
+**All pages have empty widget trees (children=0)**
+- The project likely uses LayoutGrid as the top-level page container. LayoutGrid children are in `rows[i].columns[j].widgets`, not in `.widgets` or `.containedWidgets`. The `extractWidgetTree` function has an explicit `if (Array.isArray(widget?.rows))` branch that handles this.
+
+**Page widgets show widget names instead of text content (e.g. "text40", "text39")**
+- The widget is a `DynamicText` whose text is in `widget.content.template.translations[0].text`, not `widget.caption`. Check the DynamicText branch in `extractWidgetTree`.
+
+**CustomWidget shows as `<!-- CustomWidget -->` with no data**
+- Marketplace custom widgets (DataGrid 2, ListView, etc.) are opaque to the SDK. The page generator automatically replaces `<!-- CustomWidget -->` with a dynamic fallback table when `page.entityName` is known. If the entity is also unknown, the page will have no data-rendering content — this is expected and the page-name fallback matching in `extractPages` is the mitigation.
+
+**Prisma schema error: field name starts with `_`**
+- Some Mendix attribute names start with `_` (e.g. `_showEmail`). Prisma rejects these. `sanitizeFieldName()` in `prismaGenerator.ts` strips leading underscores. If a new SDK attribute exposes a similar name, the same function will handle it automatically.
+
+**Generated route crashes with `prisma.item.findMany()`**
+- The page's entity name was not resolved. Check whether the page name contains a recognisable entity name substring. If the page uses only Marketplace custom widgets and the name doesn't match, entity detection will fail and the route falls back to an empty list (`unknown[] = []`).
 
 **Export button missing on a project**
 - Only shown for `repositoryType === 'git'`. SVN projects are excluded by design.

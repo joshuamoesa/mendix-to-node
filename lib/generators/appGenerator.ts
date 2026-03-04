@@ -1,7 +1,11 @@
 import { MendixEntity, MendixPage, GeneratedFile } from '../types'
+import { isNavPage } from '../utils/pageUtils'
 
 export function generateAppEntry(entities: MendixEntity[], pages: MendixPage[]): GeneratedFile {
   const userEntities = entities.filter(e => !e.isSystemEntity)
+  const firstNavPage = pages
+    .filter(p => isNavPage(p.name))
+    .sort((a, b) => (/^home/i.test(a.name) ? -1 : /^home/i.test(b.name) ? 1 : 0))[0]
   const entityImports = userEntities.map(e =>
     `import ${e.name.toLowerCase()}Router from './routes/${e.name.toLowerCase()}'`
   ).join('\n')
@@ -53,7 +57,7 @@ ${pageUses}
 
 // Home redirect
 app.get('/', (req, res) => {
-  res.redirect('/${pages[0]?.name.toLowerCase() || 'index'}')
+  res.redirect('/${firstNavPage?.name.toLowerCase() || 'index'}')
 })
 
 app.listen(PORT, () => {

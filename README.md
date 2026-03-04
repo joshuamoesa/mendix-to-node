@@ -242,7 +242,12 @@ Issues and pull requests are welcome. For significant changes, open an issue fir
 
 This project follows standard JavaScript/TypeScript conventions. Run `npm run build` before submitting a PR — the build must pass with no lint errors.
 
-Small note on the Mendix SDK: all SDK objects require `.load()` before property access (lazy proxies). Any contribution touching `app/api/model/route.ts` must maintain this pattern or properties will silently return `undefined`.
+**Mendix SDK patterns** — all SDK objects are lazy proxies and require `.load()` before property access. Any contribution touching `app/api/model/route.ts` must maintain this pattern or properties will silently return `undefined`. Key patterns established in the codebase:
+
+- **Entity access**: `model.allEntities()` does not exist in SDK v5. Entities live inside each module's domain model — iterate `model.allModules()` → `mod.domainModel.load()` → `domainModel.entities`.
+- **LayoutGrid widgets**: content is in `rows[i].columns[j].widgets`, not in `.widgets` / `.containedWidgets` / `.content.widgets`. The `extractWidgetTree` function handles this with an explicit `rows` branch.
+- **DynamicText widgets**: text content is in `widget.content.template.translations[0].text`, not in `widget.caption`.
+- **CustomWidget (Marketplace)**: entity bindings are in `widget.object.properties[i].value.entityRef`. These widgets (DataGrid 2, ListView, etc.) are otherwise opaque — columns and data source configuration are not accessible through the SDK. The page generator inserts a runtime-dynamic fallback table using `Object.keys(item)` when a page entity is known.
 
 ## License
 

@@ -1,25 +1,16 @@
 import { MendixPage, GeneratedFile } from '../types'
-
-function navLabel(page: MendixPage): string {
-  const base = (page.title && page.title !== page.name) ? page.title : page.name
-  return base
-    .replace(/_Overview$/i, '')
-    .replace(/_Web$/i, '')
-    .replace(/_/g, ' ')
-    .trim()
-}
-
-function isNavPage(name: string): boolean {
-  const lower = name.toLowerCase()
-  if (lower.includes('popup')) return false
-  if (lower.endsWith('_logo')) return false
-  if (lower.endsWith('_newedit') || lower.endsWith('newedit')) return false
-  if (lower.endsWith('_view') && !lower.endsWith('_overview')) return false
-  return true
-}
+import { isNavPage, navLabel } from '../utils/pageUtils'
 
 export function generateLayout(pages: MendixPage[], projectName: string): GeneratedFile {
-  const navPages = pages.filter(p => isNavPage(p.name))
+  const navPages = pages
+    .filter(p => isNavPage(p.name))
+    .sort((a, b) => {
+      const aIsHome = /^home/i.test(a.name)
+      const bIsHome = /^home/i.test(b.name)
+      if (aIsHome && !bIsHome) return -1
+      if (!aIsHome && bIsHome) return 1
+      return 0
+    })
   const navLinks = navPages.slice(0, 10).map((p, idx) => {
     const icon = idx === 0 ? '&#8962;' : '&#8853;'
     return `    <a href="/${p.name.toLowerCase()}" class="mx-nav-link">${icon} ${navLabel(p)}</a>`

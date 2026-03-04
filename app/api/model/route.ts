@@ -26,7 +26,7 @@ function mapAttributeType(typeName: string): { prismaType: PrismaType; tsType: T
       return { prismaType: 'Int', tsType: 'number', isAutoNumber: true, isEnumeration: false }
     case 'DecimalAttributeType':
     case 'FloatAttributeType':
-      return { prismaType: 'Decimal', tsType: 'number', isAutoNumber: false, isEnumeration: false }
+      return { prismaType: 'Float', tsType: 'number', isAutoNumber: false, isEnumeration: false }
     case 'BooleanAttributeType':
       return { prismaType: 'Boolean', tsType: 'boolean', isAutoNumber: false, isEnumeration: false }
     case 'DateTimeAttributeType':
@@ -73,57 +73,67 @@ async function extractEntities(model: any): Promise<MendixEntity[]> {
   const entities: MendixEntity[] = []
   const SKIP_MODULES = new Set(['System', 'Administration', 'Marketplace'])
 
+  // Entities are not top-level SDK documents — they live inside each module's
+  // domainModel. We must iterate modules → domainModel.load() → entities.
   try {
-    const allEntities = model.allEntities()
-    for (const entity of allEntities) {
+    const allModules = model.allModules()
+    for (const mod of allModules) {
       try {
-        await entity.load()
-        const moduleName = entity.qualifiedName?.split('.')?.[0] || ''
-
+        const moduleName = mod.name || ''
         if (SKIP_MODULES.has(moduleName)) continue
 
-        const attributes: MendixAttribute[] = []
-        for (const attr of entity.attributes || []) {
-          try {
-            await attr.load()
-            const typeName = attr.value?.constructor?.name || attr.attributeType?.constructor?.name || 'StringAttributeType'
-            const mapped = mapAttributeType(typeName)
-            attributes.push({
-              name: attr.name,
-              type: typeName,
-              ...mapped,
-              enumerationName: mapped.isEnumeration ? (attr.value?.enumeration?.name || attr.attributeType?.enumeration?.name) : undefined
-            })
-          } catch (_) { /* skip bad attribute */ }
-        }
+        const domainModel = mod.domainModel
+        if (!domainModel) continue
+        await domainModel.load()
 
-        const associations: MendixAssociation[] = []
-        for (const assoc of entity.ownedAssociations || []) {
+        for (const entity of domainModel.entities || []) {
           try {
-            await assoc.load()
-            const targetQName = assoc.child?.qualifiedName || ''
-            const targetParts = targetQName.split('.')
-            associations.push({
-              name: assoc.name,
-              targetEntityName: targetParts[1] || targetQName,
-              targetModuleName: targetParts[0] || '',
-              type: 'one-to-many',
-              owner: 'source'
-            })
-          } catch (_) { /* skip */ }
-        }
+            await entity.load()
 
-        entities.push({
-          name: entity.name,
-          moduleName,
-          qualifiedName: entity.qualifiedName || `${moduleName}.${entity.name}`,
-          attributes,
-          associations,
-          isSystemEntity: false
-        })
-      } catch (_) { /* skip bad entity */ }
+            const attributes: MendixAttribute[] = []
+            for (const attr of entity.attributes || []) {
+              try {
+                await attr.load()
+                const typeName = attr.value?.constructor?.name || attr.attributeType?.constructor?.name || 'StringAttributeType'
+                const mapped = mapAttributeType(typeName)
+                attributes.push({
+                  name: attr.name,
+                  type: typeName,
+                  ...mapped,
+                  enumerationName: mapped.isEnumeration ? (attr.value?.enumeration?.name || attr.attributeType?.enumeration?.name) : undefined
+                })
+              } catch (_) { /* skip bad attribute */ }
+            }
+
+            const associations: MendixAssociation[] = []
+            for (const assoc of entity.ownedAssociations || []) {
+              try {
+                await assoc.load()
+                const targetQName = assoc.child?.qualifiedName || ''
+                const targetParts = targetQName.split('.')
+                associations.push({
+                  name: assoc.name,
+                  targetEntityName: targetParts[1] || targetQName,
+                  targetModuleName: targetParts[0] || '',
+                  type: 'one-to-many',
+                  owner: 'source'
+                })
+              } catch (_) { /* skip */ }
+            }
+
+            entities.push({
+              name: entity.name,
+              moduleName,
+              qualifiedName: entity.qualifiedName || `${moduleName}.${entity.name}`,
+              attributes,
+              associations,
+              isSystemEntity: false
+            })
+          } catch (_) { /* skip bad entity */ }
+        }
+      } catch (_) { /* skip bad module */ }
     }
-  } catch (_) { /* if allEntities fails */ }
+  } catch (_) { /* if allModules fails */ }
 
   return entities
 }
@@ -240,7 +250,10 @@ async function extractMicroflows(model: any): Promise<MendixMicroflow[]> {
   return microflows
 }
 
-function extractWidgetTree(widget: any): MendixWidget {
+async function extractWidgetTree(widget: any): Promise<MendixWidget> {
+  // Every SDK object is a lazy proxy — must call .load() before reading properties
+  try { await widget.load() } catch (_) { /* widget may not support load */ }
+
   const rawType = widget?.constructor?.name || 'Unknown'
   const kind = mapWidgetKind(rawType)
 
@@ -255,12 +268,98 @@ function extractWidgetTree(widget: any): MendixWidget {
     children: []
   }
 
-  // Try to get entity from data source
+  // DynamicText: extract actual text from content.template.translations
+  if (rawType === 'DynamicText') {
+    try {
+      const content = widget?.content
+      if (content) { try { await content.load() } catch (_) { /* skip */ } }
+      const template = content?.template
+      if (template) { try { await template.load() } catch (_) { /* skip */ } }
+      const translations = template?.translations
+      if (Array.isArray(translations) && translations.length > 0) {
+        const t = translations[0]
+        if (t && typeof t.text === 'string' && t.text) {
+          result.caption = t.text
+        }
+      }
+    } catch (_) { /* skip */ }
+  }
+
+  // Try to get entity from data source (every level is a lazy proxy)
   try {
-    result.entityName = widget?.dataSource?.entity?.qualifiedName?.split('.')?.[1]
-      || widget?.entity?.qualifiedName?.split('.')?.[1]
+    if (widget?.dataSource) { try { await widget.dataSource.load() } catch (_) { /* skip */ } }
+    const dsEntity = widget?.dataSource?.entity
+    if (dsEntity) { try { await dsEntity.load() } catch (_) { /* skip */ } }
+    const entityQName = dsEntity?.qualifiedName
+      || widget?.entity?.qualifiedName
       || widget?.entityPath
+    if (entityQName) {
+      result.entityName = String(entityQName).split('.')?.[1] || String(entityQName)
+    }
   } catch (_) { /* skip */ }
+
+  // CustomWidget: scan widget.object.properties for entity / dataSource bindings
+  if (rawType === 'CustomWidget' && !result.entityName) {
+    try {
+      const obj = widget?.object
+      if (obj) { try { await obj.load() } catch (_) { /* skip */ } }
+      outer: for (const prop of obj?.properties || []) {
+        try {
+          await prop.load()
+          const val = prop?.value
+          if (!val) continue
+          try { await val.load() } catch (_) { /* skip */ }
+
+          // Direct entityRef on the value
+          if (val.entityRef) {
+            try { await val.entityRef.load() } catch (_) { /* skip */ }
+            const qname = val.entityRef?.qualifiedName
+            if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
+          }
+
+          // dataSource on the value
+          if (val.dataSource) {
+            try { await val.dataSource.load() } catch (_) { /* skip */ }
+            const dsEntity = val.dataSource?.entity
+            if (dsEntity) {
+              try { await dsEntity.load() } catch (_) { /* skip */ }
+              const qname = dsEntity?.qualifiedName
+              if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
+            }
+          }
+
+          // Nested objects (one level deep) — e.g. datasource property holds a WidgetObject
+          for (const nestedObj of val?.objects || []) {
+            try {
+              await nestedObj.load()
+              for (const np of nestedObj?.properties || []) {
+                try {
+                  await np.load()
+                  const nval = np?.value
+                  if (!nval) continue
+                  try { await nval.load() } catch (_) { /* skip */ }
+                  if (nval.entityRef) {
+                    try { await nval.entityRef.load() } catch (_) { /* skip */ }
+                    const qname = nval.entityRef?.qualifiedName
+                    if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
+                  }
+                  if (nval.dataSource) {
+                    try { await nval.dataSource.load() } catch (_) { /* skip */ }
+                    const dsE = nval.dataSource?.entity
+                    if (dsE) {
+                      try { await dsE.load() } catch (_) { /* skip */ }
+                      const qname = dsE?.qualifiedName
+                      if (qname) { result.entityName = String(qname).split('.')?.[1] || String(qname); break outer }
+                    }
+                  }
+                } catch (_) { /* skip */ }
+              }
+            } catch (_) { /* skip */ }
+          }
+        } catch (_) { /* skip */ }
+      }
+    } catch (_) { /* skip */ }
+  }
 
   // Try to get microflow from actions
   try {
@@ -268,29 +367,46 @@ function extractWidgetTree(widget: any): MendixWidget {
       || widget?.onClickAction?.microflow?.name
   } catch (_) { /* skip */ }
 
-  // Recurse into child widgets
-  const childSources = [
-    widget?.widgets,
-    widget?.containedWidgets,
-    widget?.content?.widgets,
-    widget?.footerWidgets
-  ]
+  // DataGrid columns (caption + attributePath) — extract before other children
+  if (kind === 'DataGrid' && Array.isArray(widget?.columns)) {
+    for (const col of widget.columns) {
+      try { result.children.push(await extractWidgetTree(col)) } catch (_) { /* skip */ }
+    }
+  }
 
-  for (const source of childSources) {
-    if (Array.isArray(source)) {
-      for (const child of source) {
-        try {
-          result.children.push(extractWidgetTree(child))
-        } catch (_) { /* skip */ }
+  // LayoutGrid: rows → columns → widgets (must be flattened — no direct .widgets)
+  if (Array.isArray(widget?.rows)) {
+    for (const row of widget.rows) {
+      try { await row.load() } catch (_) { /* skip */ }
+      for (const col of row?.columns || []) {
+        try { await col.load() } catch (_) { /* skip */ }
+        for (const child of col?.widgets || []) {
+          try { result.children.push(await extractWidgetTree(child)) } catch (_) { /* skip */ }
+        }
       }
-      break // only use first found source
+    }
+  } else {
+    // Standard containers: use first non-empty source
+    const stdSources = [
+      widget?.widgets,
+      widget?.containedWidgets,
+      widget?.content?.widgets,
+      widget?.footerWidgets
+    ]
+    for (const source of stdSources) {
+      if (Array.isArray(source) && source.length > 0) {
+        for (const child of source) {
+          try { result.children.push(await extractWidgetTree(child)) } catch (_) { /* skip */ }
+        }
+        break
+      }
     }
   }
 
   return result
 }
 
-async function extractPages(model: any): Promise<MendixPage[]> {
+async function extractPages(model: any, entities: MendixEntity[] = []): Promise<MendixPage[]> {
   const pages: MendixPage[] = []
   const SKIP_MODULES = new Set(['System', 'Administration'])
   const MAX = 30
@@ -319,12 +435,12 @@ async function extractPages(model: any): Promise<MendixPage[]> {
           const source = rawWidgets.length > 0 ? rawWidgets : (page.widgets || [])
           for (const widget of source) {
             try {
-              widgets.push(extractWidgetTree(widget))
+              widgets.push(await extractWidgetTree(widget))
             } catch (_) { /* skip */ }
           }
         } catch (_) { /* skip */ }
 
-        // Try to find primary entity from first DataView/ListView
+        // Try to find primary entity from widget tree
         let entityName: string | undefined
         const findEntity = (w: MendixWidget): string | undefined => {
           if (w.entityName) return w.entityName
@@ -337,6 +453,14 @@ async function extractPages(model: any): Promise<MendixPage[]> {
         for (const w of widgets) {
           entityName = findEntity(w)
           if (entityName) break
+        }
+
+        // Fallback: match page name against known entity names
+        // e.g. Person_Overview → Person, Skills_Overview → Skills
+        if (!entityName && entities.length > 0) {
+          const pageNameLower = page.name.toLowerCase()
+          const matched = entities.find(e => pageNameLower.includes(e.name.toLowerCase()))
+          if (matched) entityName = matched.name
         }
 
         pages.push({
@@ -420,9 +544,9 @@ export async function POST(request: NextRequest) {
             detail: `${microflows.length} microflows found`
           })
 
-          // Extract pages
+          // Extract pages (pass entities for name-based entity matching fallback)
           send({ type: 'progress', stage: 'Reading pages', detail: 'Scanning page definitions...' })
-          const pages = await extractPages(model)
+          const pages = await extractPages(model, userEntities)
 
           send({
             type: 'progress',

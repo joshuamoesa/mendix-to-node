@@ -1,19 +1,26 @@
 import { MendixEntity, MendixAttribute, GeneratedFile } from '../types'
 
+function sanitizeFieldName(name: string): string {
+  // Prisma field names cannot start with underscore
+  return name.replace(/^_+/, '')
+}
+
 function attributeToField(attr: MendixAttribute): string {
+  const fieldName = sanitizeFieldName(attr.name)
+
   if (attr.isAutoNumber) {
-    return `  ${attr.name}  Int  @id @default(autoincrement())`
+    return `  ${fieldName}  Int  @id @default(autoincrement())`
   }
 
   // SQLite does not support Decimal — map to Float
   const prismaType = attr.prismaType === 'Decimal' ? 'Float' : attr.prismaType
   const directives: string[] = []
 
-  if (attr.name === 'id') {
+  if (fieldName === 'id') {
     directives.push('@id')
   }
 
-  return `  ${attr.name}  ${prismaType}${attr.isEnumeration ? ' // enum: ' + (attr.enumerationName || 'unknown') : ''}  ${directives.join(' ')}`
+  return `  ${fieldName}  ${prismaType}${attr.isEnumeration ? ' // enum: ' + (attr.enumerationName || 'unknown') : ''}  ${directives.join(' ')}`
 }
 
 function entityToModel(entity: MendixEntity): string {
