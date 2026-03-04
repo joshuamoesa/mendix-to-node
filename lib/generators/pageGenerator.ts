@@ -79,7 +79,7 @@ ${i}</div>`
         `${i2}    <td><%= item.${c.attributeName} %></td>`
       ).join('\n')
 
-      return `${i}<div style="margin-bottom:1rem">
+      return `${i}<div style="margin: 1.5rem 0">
 ${i2}<a href="/${entity.toLowerCase()}/new" class="btn">New ${entity}</a>
 ${i}</div>
 ${i}<table class="table">
@@ -163,7 +163,7 @@ function generateEjsTemplate(page: MendixPage): string {
     const entity = page.entityName
     const entityVar = entity.toLowerCase() + 'List'
     const entityLower = entity.toLowerCase()
-    const fallbackTable = `  <div style="margin-bottom:1rem">
+    const fallbackTable = `  <div style="margin: 1.5rem 0">
     <a href="/${entityLower}/new" class="btn">New ${entity}</a>
   </div>
   <table class="table">
@@ -197,12 +197,19 @@ ${body || '  <!-- TODO: page content -->'}
 </div>`
 }
 
+function attrInputType(a: { tsType: string; name: string }): string {
+  if (a.tsType === 'boolean') return 'checkbox'
+  if (a.tsType === 'number') return 'number'
+  if (a.tsType === 'Date' || /date|time/i.test(a.name)) return 'date'
+  return 'text'
+}
+
 function generateNewFormView(entity: MendixEntity): string {
   const nameLower = entity.name.toLowerCase()
   const fields = entity.attributes
     .filter(a => !a.isAutoNumber)
     .map(a => {
-      const inputType = a.tsType === 'number' ? 'number' : a.tsType === 'boolean' ? 'checkbox' : 'text'
+      const inputType = attrInputType(a)
       return `  <div class="form-group">
     <label for="${a.name}">${a.name}</label>
     <input type="${inputType}" id="${a.name}" name="${a.name}" class="form-control">
@@ -227,7 +234,7 @@ function generateEditFormView(entity: MendixEntity): string {
   const fields = entity.attributes
     .filter(a => !a.isAutoNumber)
     .map(a => {
-      const inputType = a.tsType === 'number' ? 'number' : a.tsType === 'boolean' ? 'checkbox' : 'text'
+      const inputType = attrInputType(a)
       return `  <div class="form-group">
     <label for="${a.name}">${a.name}</label>
     <input type="${inputType}" id="${a.name}" name="${a.name}" value="<%= item.${a.name} %>" class="form-control">
