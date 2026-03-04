@@ -247,7 +247,8 @@ This project follows standard JavaScript/TypeScript conventions. Run `npm run bu
 - **Entity access**: `model.allEntities()` does not exist in SDK v5. Entities live inside each module's domain model — iterate `model.allModules()` → `mod.domainModel.load()` → `domainModel.entities`.
 - **LayoutGrid widgets**: content is in `rows[i].columns[j].widgets`, not in `.widgets` / `.containedWidgets` / `.content.widgets`. The `extractWidgetTree` function handles this with an explicit `rows` branch.
 - **DynamicText widgets**: text content is in `widget.content.template.translations[0].text`, not in `widget.caption`.
-- **CustomWidget (Marketplace)**: entity bindings are in `widget.object.properties[i].value.entityRef`. These widgets (DataGrid 2, ListView, etc.) are otherwise opaque — columns and data source configuration are not accessible through the SDK. The page generator inserts a runtime-dynamic fallback table using `Object.keys(item)` when a page entity is known.
+- **CustomWidget (Marketplace)**: entity bindings use `DirectEntityRef.entityQualifiedName` and `DataSource.entityQualifiedName` (SDK v5 — not `.qualifiedName` or `.entity.qualifiedName`). These widgets (DataGrid 2, ListView, etc.) are otherwise opaque — columns and data source configuration are not accessible through the SDK. The page generator inserts a runtime-dynamic fallback table using `Object.keys(item)` when a page entity is known.
+- **Page headings**: the first two `Text`/`Label` widget captions are promoted to `<h1>` and `<p class="mx-subtitle">` by `extractHeadings()` in `pageGenerator.ts`. These captions are added to a `promotedCaptions` set so they are not duplicated in the body. This ensures the visible heading comes from the DynamicText content rather than the internal Mendix page name.
 
 ## License
 

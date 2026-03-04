@@ -28,7 +28,7 @@ export function generateLayout(pages: MendixPage[], projectName: string): Genera
 
     /* Navbar */
     .mx-navbar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: linear-gradient(to bottom, #264ae5, #1f3db8); display: flex; align-items: center; padding: 0 1.5rem; z-index: 100; }
-    .mx-logo { width: 32px; height: 32px; background: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 0.75rem; color: #264ae5; flex-shrink: 0; }
+    .mx-logo { width: 33px; height: 33px; flex-shrink: 0; }
     .mx-nav-links { flex: 1; display: flex; justify-content: center; gap: 2rem; }
     .mx-nav-link { color: #fff; text-decoration: none; font-size: 14px; display: flex; align-items: center; gap: 0.4rem; opacity: 0.9; }
     .mx-nav-link:hover { opacity: 1; text-decoration: underline; }
@@ -65,7 +65,7 @@ export function generateLayout(pages: MendixPage[], projectName: string): Genera
 </head>
 <body>
   <nav class="mx-navbar">
-    <div class="mx-logo">mx</div>
+    <svg class="mx-logo" width="33" height="33" viewBox="0 0 33 33" fill="none" xmlns="http://www.w3.org/2000/svg"><g clip-path="url(#mxlogo)"><rect width="32.375" height="32.375" rx="5.05859" fill="white"/><path d="M12.796 19.5976C13.1493 18.8618 14.0536 18.2109 15.3959 18.2109C17.8262 18.2109 18.2642 20.2061 18.2642 21.0409V26.0181L20.6387 22.3002L18.3073 18.3807H21.0343L22.193 20.8004L23.3516 18.3807H26.0786L23.7472 22.3002L26.3047 26.3047H23.5494L22.193 23.8001L20.8365 26.3047L15.9187 26.3047V21.9324C15.9187 20.6872 15.4948 20.291 14.7601 20.291C13.771 20.291 13.333 21.1258 13.333 22.3569V26.3047H11.0016V21.9324C11.0016 20.6872 10.5777 20.291 9.84293 20.291C8.85387 20.291 8.41584 21.14 8.41584 22.3569V26.3047H6.07031V18.3807H7.93544L8.0626 19.4278H8.105C8.64192 18.5788 9.40493 18.2109 10.3799 18.2109C11.5809 18.2109 12.3863 18.8335 12.7536 19.5976H12.796Z" fill="#0A1324"/></g><defs><clipPath id="mxlogo"><rect width="32.375" height="32.375" fill="white"/></clipPath></defs></svg>
     <div class="mx-nav-links">
 ${navLinks}
     </div>

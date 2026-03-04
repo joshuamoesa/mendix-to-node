@@ -415,6 +415,7 @@ All generators are **pure functions** — no network calls, no side effects. The
 - Self-contained CSS (no external dependencies in generated app)
 - Imports `isNavPage` and `navLabel` from `lib/utils/pageUtils.ts`
 - Nav pages are sorted so pages whose name starts with `home` (case-insensitive) appear first
+- Navbar logo is the Atlas Core SVG mark (`Atlas_Core$Layout$logo.svg`) embedded inline — identical to the image the Mendix runtime serves. Do not replace this with a text or CSS badge.
 
 ### `appGenerator.ts`
 `generateAppEntry(entities, pages): GeneratedFile` → `src/app.ts`
