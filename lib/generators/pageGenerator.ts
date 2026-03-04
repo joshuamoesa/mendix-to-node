@@ -1,4 +1,4 @@
-import { MendixPage, MendixWidget, GeneratedFile } from '../types'
+import { MendixPage, MendixWidget, MendixEntity, GeneratedFile } from '../types'
 
 // Collect captions of the first N Text/Label widgets in document order.
 // Used by generateEjsTemplate to promote them to <h1> / .mx-subtitle.
@@ -197,10 +197,62 @@ ${body || '  <!-- TODO: page content -->'}
 </div>`
 }
 
-function generateRouteFile(page: MendixPage): string {
+function generateNewFormView(entity: MendixEntity): string {
+  const nameLower = entity.name.toLowerCase()
+  const fields = entity.attributes
+    .filter(a => !a.isAutoNumber)
+    .map(a => {
+      const inputType = a.tsType === 'number' ? 'number' : a.tsType === 'boolean' ? 'checkbox' : 'text'
+      return `  <div class="form-group">
+    <label for="${a.name}">${a.name}</label>
+    <input type="${inputType}" id="${a.name}" name="${a.name}" class="form-control">
+  </div>`
+    })
+    .join('\n')
+
+  return `<div class="container">
+  <h1>New ${entity.name}</h1>
+  <form method="POST" action="/${nameLower}/create">
+${fields || '  <!-- TODO: form fields -->'}
+    <div style="margin-top:1.25rem;display:flex;gap:0.75rem;align-items:center">
+      <button type="submit" class="btn">Save</button>
+      <a href="/${nameLower}_overview">Cancel</a>
+    </div>
+  </form>
+</div>`
+}
+
+function generateEditFormView(entity: MendixEntity): string {
+  const nameLower = entity.name.toLowerCase()
+  const fields = entity.attributes
+    .filter(a => !a.isAutoNumber)
+    .map(a => {
+      const inputType = a.tsType === 'number' ? 'number' : a.tsType === 'boolean' ? 'checkbox' : 'text'
+      return `  <div class="form-group">
+    <label for="${a.name}">${a.name}</label>
+    <input type="${inputType}" id="${a.name}" name="${a.name}" value="<%= item.${a.name} %>" class="form-control">
+  </div>`
+    })
+    .join('\n')
+
+  return `<div class="container">
+  <h1>Edit ${entity.name}</h1>
+  <form method="POST" action="/${nameLower}/<%= item.id %>/update">
+${fields || '  <!-- TODO: form fields -->'}
+    <div style="margin-top:1.25rem;display:flex;gap:0.75rem;align-items:center">
+      <button type="submit" class="btn">Save</button>
+      <a href="/${nameLower}_overview">Cancel</a>
+    </div>
+  </form>
+</div>`
+}
+
+function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string {
   const routePath = page.name.toLowerCase()
   const hasEntity = !!page.entityName
   const entity = (page.entityName || 'item').toLowerCase()
+  const newFormView = entityModel ? `${entityModel.name}_new` : page.name
+  const editFormView = entityModel ? `${entityModel.name}_edit` : page.name
 
   // When no entity is resolved, render with an empty list rather than calling
   // a non-existent prisma model and crashing at runtime.
@@ -238,7 +290,7 @@ router.post('/${routePath}/save', async (req: Request, res: Response) => {
 
 // GET /${entity}/new - render new record form
 router.get('/${entity}/new', async (req: Request, res: Response) => {
-  res.render('${page.name}', { title: 'New ${page.entityName || entity}', ${entity}List: [], item: null })
+  res.render('${newFormView}', { title: 'New ${page.entityName || entity}', item: null })
 })
 
 // POST /${entity}/create - create new record
@@ -251,11 +303,42 @@ router.post('/${entity}/create', async (req: Request, res: Response) => {
   }
 })
 
+// GET /${entity}/:id/edit - render edit form
+router.get('/${entity}/:id/edit', async (req: Request, res: Response) => {
+  try {
+    const item = await prisma.${entity}.findUnique({ where: { id: parseInt(req.params.id) } })
+    if (!item) return res.status(404).render('error', { title: 'Not found', message: '${page.entityName || entity} not found' })
+    res.render('${editFormView}', { title: 'Edit ${page.entityName || entity}', item })
+  } catch (err) {
+    res.status(500).render('error', { title: 'Error', message: 'Failed to load ${page.entityName || entity}' })
+  }
+})
+
+// POST /${entity}/:id/update - save edits
+router.post('/${entity}/:id/update', async (req: Request, res: Response) => {
+  try {
+    await prisma.${entity}.update({ where: { id: parseInt(req.params.id) }, data: req.body })
+    res.redirect('/${routePath}')
+  } catch (err) {
+    res.status(500).render('error', { title: 'Error', message: 'Failed to update ${page.entityName || entity}' })
+  }
+})
+
+// POST /${entity}/:id/delete - delete record
+router.post('/${entity}/:id/delete', async (req: Request, res: Response) => {
+  try {
+    await prisma.${entity}.delete({ where: { id: parseInt(req.params.id) } })
+    res.redirect('/${routePath}')
+  } catch (err) {
+    res.status(500).render('error', { title: 'Error', message: 'Failed to delete ${page.entityName || entity}' })
+  }
+})
+
 export default router
 `
 }
 
-export function generatePages(pages: MendixPage[]): GeneratedFile[] {
+export function generatePages(pages: MendixPage[], entities: MendixEntity[] = []): GeneratedFile[] {
   const MAX_PAGES = 30
   const limited = pages.slice(0, MAX_PAGES)
 
@@ -263,9 +346,16 @@ export function generatePages(pages: MendixPage[]): GeneratedFile[] {
     console.warn(`[pageGenerator] Capped at ${MAX_PAGES} pages (${pages.length} total)`)
   }
 
+  // Build lookup: entity name (lowercase) → MendixEntity
+  const entityMap = new Map(entities.map(e => [e.name.toLowerCase(), e]))
+  // Track which entities already have a form view generated (one per entity, not one per page)
+  const formViewsGenerated = new Set<string>()
+
   const files: GeneratedFile[] = []
 
   for (const page of limited) {
+    const entityModel = page.entityName ? entityMap.get(page.entityName.toLowerCase()) : undefined
+
     files.push({
       path: `views/${page.name}.ejs`,
       content: generateEjsTemplate(page),
@@ -274,9 +364,24 @@ export function generatePages(pages: MendixPage[]): GeneratedFile[] {
 
     files.push({
       path: `src/routes/${page.name}.ts`,
-      content: generateRouteFile(page),
+      content: generateRouteFile(page, entityModel),
       category: 'routes'
     })
+
+    // Generate dedicated new/edit form views for each entity (once per entity)
+    if (entityModel && !formViewsGenerated.has(entityModel.name)) {
+      formViewsGenerated.add(entityModel.name)
+      files.push({
+        path: `views/${entityModel.name}_new.ejs`,
+        content: generateNewFormView(entityModel),
+        category: 'pages'
+      })
+      files.push({
+        path: `views/${entityModel.name}_edit.ejs`,
+        content: generateEditFormView(entityModel),
+        category: 'pages'
+      })
+    }
   }
 
   // Always generate a minimal error view used by route error handlers

@@ -28,7 +28,7 @@ function generateAllFiles(model: MendixAppModel): GeneratedFile[] {
   files.push(generatePrismaSchema(model.entities))
   files.push(generateTypes(model.entities))
   files.push(...generateMicroflowServices(model.microflows))
-  files.push(...generatePages(model.pages))
+  files.push(...generatePages(model.pages, model.entities))
   files.push(...generateEntityRoutes(model.entities.filter(e => !e.isSystemEntity)))
   files.push(generateLayout(model.pages, model.projectName))
   files.push(generateAppEntry(model.entities, model.pages))
