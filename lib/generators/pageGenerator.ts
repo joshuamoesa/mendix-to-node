@@ -1,6 +1,10 @@
 import { MendixPage, MendixWidget, MendixEntity, GeneratedFile } from '../types'
 import { pluralize } from '../utils/pageUtils'
 
+// Relations that point back to a given entity via a one-to-many FK owned elsewhere.
+// E.g. for Person: [{ ownerName: 'Skills', assocField: 'skills', displayAttrs: ['Name','Level'] }]
+type ReverseRelation = { ownerName: string; assocField: string; displayAttrs: string[] }
+
 // Collect captions of the first N Text/Label widgets in document order.
 // Used by generateEjsTemplate to promote them to <h1> / .mx-subtitle.
 function extractHeadings(widgets: MendixWidget[], max = 2): string[] {
@@ -17,7 +21,7 @@ function extractHeadings(widgets: MendixWidget[], max = 2): string[] {
   return results
 }
 
-function widgetToHtml(widget: MendixWidget, indent: string, routePath: string = '', promotedCaptions: Set<string> = new Set()): string {
+function widgetToHtml(widget: MendixWidget, indent: string, routePath: string = '', promotedCaptions: Set<string> = new Set(), reverseO2m: ReverseRelation[] = []): string {
   const i = indent
   const i2 = indent + '  '
 
@@ -54,17 +58,62 @@ ${i}</form>`
         ? `\n${i2}    <div class="mx-list-sub">${secondaryLabel}: <%= item.${secondaryAttr} %></div>`
         : ''
 
+      const hasPopup = reverseO2m.length > 0
+      const onclickAttr = hasPopup
+        ? ` onclick="document.getElementById('modal-${entityVar}-'+item.id).showModal()"`
+        : ''
+
+      // Build <dialog> blocks for each reverse relation
+      const dialogBlocks = reverseO2m.map(r => {
+        const headers = r.displayAttrs.map(a => `${i2}        <th>${a}</th>`).join('\n')
+        const cells = r.displayAttrs.map(a => `${i2}        <td><%= s.${a} %></td>`).join('\n')
+        return `${i2}<dialog id="modal-${entityVar}-<%= item.id %>" class="mx-dialog">
+${i2}  <div class="mx-dialog-header">
+${i2}    <h2><%= ${primaryExpr} %></h2>
+${i2}    <button onclick="this.closest('dialog').close()" class="mx-dialog-close">&#10005;</button>
+${i2}  </div>
+${i2}  <% if (item.${r.assocField} && item.${r.assocField}.length > 0) { %>
+${i2}  <h3 style="margin-top:1rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280">${r.ownerName}</h3>
+${i2}  <table class="table" style="margin-top:0.5rem">
+${i2}    <thead><tr>
+${headers}
+${i2}    </tr></thead>
+${i2}    <tbody>
+${i2}    <% item.${r.assocField}.forEach(function(s) { %>
+${i2}    <tr>
+${cells}
+${i2}    </tr>
+${i2}    <% }) %>
+${i2}    </tbody>
+${i2}  </table>
+${i2}  <% } else { %>
+${i2}  <p style="color:#6b7280;margin-top:1rem">No ${r.ownerName.toLowerCase()} assigned.</p>
+${i2}  <% } %>
+${i2}</dialog>`
+      }).join('\n')
+
+      const modalCss = hasPopup ? `
+${i}<style>
+${i2}.mx-dialog{border:none;border-radius:12px;padding:1.5rem;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+${i2}.mx-dialog::backdrop{background:rgba(0,0,0,.45)}
+${i2}.mx-dialog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
+${i2}.mx-dialog-header h2{font-size:1.1rem;font-weight:700;color:#0a1326}
+${i2}.mx-dialog-close{background:none;border:none;cursor:pointer;font-size:1.1rem;color:#6b7280;padding:.25rem;line-height:1}
+${i2}.mx-dialog-close:hover{color:#333}
+${i}</style>` : ''
+
       return `${i}<div class="mx-list">
 ${i2}<% ${entityVar}List.forEach(function(item) { %>
-${i2}<div class="mx-list-row">
+${i2}<div class="mx-list-row"${onclickAttr}>
 ${i2}  <div class="mx-avatar"><%= ${avatarExpr} %></div>
 ${i2}  <div class="mx-list-body">
 ${i2}    <div class="mx-list-title"><%= ${primaryExpr} %></div>${subLine}
 ${i2}  </div>
 ${i2}  <span class="mx-chevron">&#8250;</span>
 ${i2}</div>
+${dialogBlocks}
 ${i2}<% }) %>
-${i}</div>`
+${i}</div>${modalCss}`
     }
 
     case 'DataGrid': {
@@ -133,18 +182,18 @@ ${i}</div>`
       return `${i}<p>${widget.caption || ''}</p>`
 
     case 'Container': {
-      const children = widget.children.map(c => widgetToHtml(c, i2, routePath, promotedCaptions)).filter(Boolean).join('\n')
+      const children = widget.children.map(c => widgetToHtml(c, i2, routePath, promotedCaptions, reverseO2m)).filter(Boolean).join('\n')
       return children ? `${i}<div>\n${children}\n${i}</div>` : ''
     }
 
     default:
       return widget.children.length > 0
-        ? widget.children.map(c => widgetToHtml(c, i, routePath, promotedCaptions)).filter(Boolean).join('\n')
+        ? widget.children.map(c => widgetToHtml(c, i, routePath, promotedCaptions, reverseO2m)).filter(Boolean).join('\n')
         : `${i}<!-- ${widget.rawType} -->`
   }
 }
 
-function generateEjsTemplate(page: MendixPage): string {
+function generateEjsTemplate(page: MendixPage, reverseO2m: ReverseRelation[] = []): string {
   const routePath = page.name.toLowerCase()
 
   // Promote the first two Text/Label captions to <h1> and .mx-subtitle so the
@@ -155,7 +204,7 @@ function generateEjsTemplate(page: MendixPage): string {
   const subtitleText = headings.length >= 2 ? headings[1] : null
   const promotedCaptions = new Set(headings.slice(0, 2).filter(Boolean))
 
-  let body = page.widgets.map(w => widgetToHtml(w, '  ', routePath, promotedCaptions)).filter(Boolean).join('\n\n')
+  let body = page.widgets.map(w => widgetToHtml(w, '  ', routePath, promotedCaptions, reverseO2m)).filter(Boolean).join('\n\n')
 
   // CustomWidget (DataGrid 2, ListView, etc.) is opaque to the SDK and renders as a comment.
   // If the page has a resolved entity, replace the first such placeholder with a dynamic
@@ -327,7 +376,7 @@ ${m2mFields}
 </div>`
 }
 
-function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string {
+function generateRouteFile(page: MendixPage, entityModel?: MendixEntity, reverseO2m: ReverseRelation[] = []): string {
   const routePath = page.name.toLowerCase()
   const hasEntity = !!page.entityName
   const entity = (page.entityName || 'item').toLowerCase()
@@ -337,10 +386,11 @@ function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string
   const m2mAssocs = entityModel?.associations.filter(a => a.type === 'many-to-many') ?? []
   const o2mAssocs = entityModel?.associations.filter(a => a.type === 'one-to-many') ?? []
 
-  // ---- Overview list fetch — include o2m and m2m relations ----
+  // ---- Overview list fetch — include o2m, m2m, and reverse o2m relations ----
   const listIncludeParts = [
     ...m2mAssocs.map(a => `${pluralize(a.targetEntityName)}: true`),
-    ...o2mAssocs.map(a => `${a.targetEntityName.toLowerCase()}: true`)
+    ...o2mAssocs.map(a => `${a.targetEntityName.toLowerCase()}: true`),
+    ...reverseO2m.map(r => `${r.assocField}: true`)
   ]
   const listInclude = listIncludeParts.join(', ')
   // When no entity is resolved, render with an empty list rather than calling
@@ -538,6 +588,25 @@ export function generatePages(pages: MendixPage[], entities: MendixEntity[] = []
 
   // Build lookup: entity name (lowercase) → MendixEntity
   const entityMap = new Map(entities.map(e => [e.name.toLowerCase(), e]))
+
+  // Build reverse-o2m map: for each entity that is the TARGET of a one-to-many FK,
+  // record which entities own that FK and what attributes they display.
+  // E.g. Person → [{ ownerName: 'Skills', assocField: 'skills', displayAttrs: ['Name','Level'] }]
+  const reverseO2mMap = new Map<string, ReverseRelation[]>()
+  for (const e of entities) {
+    for (const assoc of e.associations.filter(a => a.type === 'one-to-many')) {
+      const targetLower = assoc.targetEntityName.toLowerCase()
+      if (!reverseO2mMap.has(targetLower)) reverseO2mMap.set(targetLower, [])
+      const ownerEntity = entityMap.get(e.name.toLowerCase())
+      const displayAttrs = ownerEntity?.attributes.filter(a => !a.isAutoNumber).map(a => a.name) ?? []
+      reverseO2mMap.get(targetLower)!.push({
+        ownerName: e.name,
+        assocField: pluralize(e.name),
+        displayAttrs
+      })
+    }
+  }
+
   // Track which entities already have a form view generated (one per entity, not one per page)
   const formViewsGenerated = new Set<string>()
 
@@ -545,16 +614,17 @@ export function generatePages(pages: MendixPage[], entities: MendixEntity[] = []
 
   for (const page of limited) {
     const entityModel = page.entityName ? entityMap.get(page.entityName.toLowerCase()) : undefined
+    const reverseO2m = reverseO2mMap.get(page.entityName?.toLowerCase() ?? '') ?? []
 
     files.push({
       path: `views/${page.name}.ejs`,
-      content: generateEjsTemplate(page),
+      content: generateEjsTemplate(page, reverseO2m),
       category: 'pages'
     })
 
     files.push({
       path: `src/routes/${page.name}.ts`,
-      content: generateRouteFile(page, entityModel),
+      content: generateRouteFile(page, entityModel, reverseO2m),
       category: 'routes'
     })
 
