@@ -86,6 +86,8 @@ async function extractEntities(model: any): Promise<MendixEntity[]> {
         if (!domainModel) continue
         await domainModel.load()
 
+        // Pass 1: extract entities + attributes, build a lookup by entity name
+        const entityByName = new Map<string, MendixEntity>()
         for (const entity of domainModel.entities || []) {
           try {
             await entity.load()
@@ -105,33 +107,40 @@ async function extractEntities(model: any): Promise<MendixEntity[]> {
               } catch (_) { /* skip bad attribute */ }
             }
 
-            const associations: MendixAssociation[] = []
-            for (const assoc of entity.ownedAssociations || []) {
-              try {
-                await assoc.load()
-                const targetQName = assoc.child?.qualifiedName || ''
-                const targetParts = targetQName.split('.')
-                const assocType: 'many-to-many' | 'one-to-many' =
-                  String(assoc.type || '').includes('ReferenceSet') ? 'many-to-many' : 'one-to-many'
-                associations.push({
-                  name: assoc.name,
-                  targetEntityName: targetParts[1] || targetQName,
-                  targetModuleName: targetParts[0] || '',
-                  type: assocType,
-                  owner: 'source'
-                })
-              } catch (_) { /* skip */ }
-            }
-
-            entities.push({
+            const extracted: MendixEntity = {
               name: entity.name,
               moduleName,
               qualifiedName: entity.qualifiedName || `${moduleName}.${entity.name}`,
               attributes,
-              associations,
+              associations: [],
               isSystemEntity: false
-            })
+            }
+            entities.push(extracted)
+            entityByName.set(entity.name, extracted)
           } catch (_) { /* skip bad entity */ }
+        }
+
+        // Pass 2: extract associations from domainModel.associations (entity.ownedAssociations
+        // does not exist in SDK v5 — associations live on the domain model, not the entity)
+        for (const assoc of domainModel.associations || []) {
+          try {
+            await assoc.load()
+            const parentName: string = assoc.parent?.name || ''
+            const targetQName: string = assoc.child?.qualifiedName || ''
+            const targetParts = targetQName.split('.')
+            const assocType: 'many-to-many' | 'one-to-many' =
+              String(assoc.type || '').includes('ReferenceSet') ? 'many-to-many' : 'one-to-many'
+            const parentEntity = entityByName.get(parentName)
+            if (parentEntity) {
+              parentEntity.associations.push({
+                name: assoc.name,
+                targetEntityName: targetParts[1] || targetQName,
+                targetModuleName: targetParts[0] || '',
+                type: assocType,
+                owner: 'source'
+              })
+            }
+          } catch (_) { /* skip bad association */ }
         }
       } catch (_) { /* skip bad module */ }
     }

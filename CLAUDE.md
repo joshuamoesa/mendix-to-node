@@ -210,7 +210,10 @@ SSE stream. Creates a Mendix working copy, extracts domain model + microflows + 
 ```
 
 **Extraction stages:**
-1. `extractEntities(model)` — iterates `model.allModules()` → `mod.domainModel.load()` → `domainModel.entities`; skips `System`/`Administration`/`Marketplace` modules. **`model.allEntities()` does not exist in SDK v5** — entities are only accessible through the module hierarchy.
+1. `extractEntities(model)` — two-pass extraction per module:
+   - **Pass 1**: iterates `domainModel.entities`, calls `.load()` on each, extracts attributes, and builds an `entityByName: Map<string, MendixEntity>` lookup. Each entity starts with `associations: []`. **`model.allEntities()` does not exist in SDK v5** — entities are only accessible through the module hierarchy.
+   - **Pass 2**: iterates `domainModel.associations` (NOT `entity.ownedAssociations` — that property does not exist in SDK v5), calls `.load()` on each association, reads `assoc.parent?.name` to find the owning entity in `entityByName`, and pushes the association. Association type uses `String(assoc.type).includes('ReferenceSet') ? 'many-to-many' : 'one-to-many'` — `AssociationType` is an `AbstractEnum` whose `toString()` returns its name.
+   - Skips `System`/`Administration`/`Marketplace` modules.
 2. `extractMicroflows(model)` — loads up to 50 microflows, builds node graph from `objectCollection.objects` + `mf.flows`
 3. `extractPages(model, entities)` — loads up to 30 pages, walks widget tree recursively, passes entity list for name-based fallback matching
 
@@ -225,6 +228,8 @@ SSE stream. Creates a Mendix working copy, extracts domain model + microflows + 
 - Every SDK object must have `.load()` called before accessing properties (lazy proxies — silent failure otherwise)
 - Working copy creation: `app.createTemporaryWorkingCopy(branch)` — takes 30–120 seconds, normal
 - All extraction is wrapped in `try/catch` per entity/microflow/page so one bad object doesn't abort the whole extraction
+- **Associations are on `domainModel.associations`, not on entities.** `entity.ownedAssociations` does not exist in SDK v5. Always use the two-pass approach: build `entityByName` map in Pass 1, then attach associations in Pass 2 via `assoc.parent?.name`.
+- **`AssociationType` is an `AbstractEnum`** — `assoc.type` is not a plain string. Use `String(assoc.type).includes('ReferenceSet')` for many-to-many detection; do not compare with `===` against a string literal.
 
 ### `POST /api/launch` (`app/api/launch/route.ts`)
 
@@ -265,7 +270,7 @@ Body: `{ projectId: string }`. Kills the process (if running), removes from `run
 
 ## lib/utils/pageUtils.ts
 
-Shared utilities used by both `layoutGenerator.ts` and `appGenerator.ts`:
+Shared utilities used across generators:
 
 ```typescript
 isNavPage(name: string): boolean
@@ -276,6 +281,11 @@ Returns `false` for pages whose names suggest they are not top-level navigation 
 navLabel(page: MendixPage): string
 ```
 Strips common Mendix page name suffixes (`_Overview`, `_Web`) and underscores to produce a human-readable navbar label.
+
+```typescript
+pluralize(name: string): string
+```
+Converts an entity name to a lowercase plural field name for use in Prisma relation fields and route includes. Rules: already ends with `s` → lowercase as-is; ends with `y` → replace `y` with `ies`; otherwise → append `s`. Examples: `"Skills"` → `"skills"`, `"Person"` → `"persons"`, `"Category"` → `"categories"`. Used by `prismaGenerator.ts` and `pageGenerator.ts`.
 
 ## lib/launchStore.ts
 
@@ -366,8 +376,11 @@ All generators are **pure functions** — no network calls, no side effects. The
 - Provider: `sqlite` (no server required for launched apps)
 - `Decimal` mapped to `Float` (SQLite has no Decimal type in Prisma)
 - AutoNumber attrs → `@id @default(autoincrement())`
-- Associations → Prisma relation fields
 - `sanitizeFieldName()` strips leading underscores from field names — Prisma rejects names starting with `_` (e.g. Mendix's `_showEmail` becomes `showEmail`)
+- **Relation field generation** — pre-computed in a single pass over all entities before any model is rendered. Both sides of every association are registered together via `addRelation(entityName, line)`:
+  - `many-to-many`: owner entity gets `pluralize(target)  Target[]`; target entity gets `pluralize(owner)  Owner[]`. Prisma creates the implicit join table automatically. Both sides must be declared or Prisma validation fails.
+  - `one-to-many`: the owning entity (Mendix `assoc.parent`) gets an FK column (`targetNameId  Int?`) and a nullable scalar navigation (`targetName  TargetName?  @relation(...)`); the target entity gets the array navigation (`pluralize(owner)  Owner[]`). This reflects the database reality: the FK lives on the owning entity's table.
+  - This single-pass approach avoids the split forward-loop / back-reference-loop pattern, which was prone to generating only one side (causing Prisma validation errors) when entity associations were populated after the first pass.
 
 ### `typesGenerator.ts`
 `generateTypes(entities: MendixEntity[]): GeneratedFile`
@@ -395,7 +408,7 @@ All generators are **pure functions** — no network calls, no side effects. The
 | `EndEvent` | `return translatedExpression` |
 
 ### `pageGenerator.ts`
-`generatePages(pages: MendixPage[]): GeneratedFile[]`
+`generatePages(pages: MendixPage[], entities?: MendixEntity[]): GeneratedFile[]`
 `generateEntityRoutes(entities): GeneratedFile[]`
 - Pages capped at **30**
 - Each page → two files: `views/{name}.ejs` + `src/routes/{name}.ts`
@@ -554,6 +567,12 @@ The Mendix SDK cannot be bundled by webpack — it uses dynamic `require` intern
 **Prisma schema error: field name starts with `_`**
 - Some Mendix attribute names start with `_` (e.g. `_showEmail`). Prisma rejects these. `sanitizeFieldName()` in `prismaGenerator.ts` strips leading underscores. If a new SDK attribute exposes a similar name, the same function will handle it automatically.
 
+**`Prisma CLI Validation Error Count: 1 | [Context: getDmmf]` on launch**
+- Usually caused by a relation field declared on only one side of an association. Prisma requires both sides to be present. Check `prisma/schema.prisma` in the launched app: if entity A has `bItems B[]` but entity B has no back-reference to A, the schema is invalid. The `prismaGenerator` single-pass approach prevents this, but if you see it after a code change, verify the `addRelation` calls register both sides for every association.
+
+**All entities have empty `associations` arrays despite associations existing in Studio Pro**
+- `entity.ownedAssociations` does not exist in SDK v5 — it silently returns `undefined`, making `entity.ownedAssociations || []` always empty. Use `domainModel.associations` with the two-pass extraction. See `extractEntities()` in `app/api/model/route.ts`.
+
 **Generated route crashes with `prisma.item.findMany()`**
 - The page's entity name was not resolved. Check whether the page name contains a recognisable entity name substring. If the page uses only Marketplace custom widgets and the name doesn't match, entity detection will fail and the route falls back to an empty list (`unknown[] = []`).
 
@@ -588,6 +607,8 @@ Before committing:
 - [ ] Copy button on code viewer copies to clipboard
 - [ ] Download ZIP contains all expected files
 - [ ] Generated `prisma/schema.prisma` uses `provider = "sqlite"` and no `Decimal` fields
+- [ ] Generated schema: every relation field has both sides declared (no one-sided associations)
+- [ ] For a one-to-many association, the owning entity has both the FK column (`targetId Int?`) and the scalar navigation; the target entity has the array navigation
 - [ ] Export button hidden for SVN repos
 - [ ] Error state shows Retry button + Back to Projects
 - [ ] Launch App button appears on export page after code is ready
