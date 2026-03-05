@@ -60,7 +60,7 @@ ${i}</form>`
 
       const hasPopup = reverseO2m.length > 0
       const onclickAttr = hasPopup
-        ? ` onclick="document.getElementById('modal-${entityVar}-'+item.id).showModal()"`
+        ? ` onclick="document.getElementById('modal-${entityVar}-<%= item.id %>').showModal()"`
         : ''
 
       // Build <dialog> blocks for each reverse relation
@@ -193,7 +193,7 @@ ${i}</div>`
   }
 }
 
-function generateEjsTemplate(page: MendixPage, reverseO2m: ReverseRelation[] = []): string {
+function generateEjsTemplate(page: MendixPage, reverseO2m: ReverseRelation[] = [], entityModel?: MendixEntity): string {
   const routePath = page.name.toLowerCase()
 
   // Promote the first two Text/Label captions to <h1> and .mx-subtitle so the
@@ -207,13 +207,80 @@ function generateEjsTemplate(page: MendixPage, reverseO2m: ReverseRelation[] = [
   let body = page.widgets.map(w => widgetToHtml(w, '  ', routePath, promotedCaptions, reverseO2m)).filter(Boolean).join('\n\n')
 
   // CustomWidget (DataGrid 2, ListView, etc.) is opaque to the SDK and renders as a comment.
-  // If the page has a resolved entity, replace the first such placeholder with a dynamic
-  // fallback table — columns are derived at runtime from the Prisma record keys.
+  // If the page has a resolved entity, replace the first such placeholder with either:
+  //   a) a card list with popup dialogs (when reverse o2m relations exist), or
+  //   b) a generic fallback table (columns derived at runtime from Object.keys).
   if (page.entityName && body.includes('<!-- CustomWidget -->')) {
     const entity = page.entityName
     const entityVar = entity.toLowerCase() + 'List'
     const entityLower = entity.toLowerCase()
-    const fallbackTable = `  <div style="margin: 1.5rem 0">
+
+    let fallback: string
+
+    if (reverseO2m.length > 0 && entityModel) {
+      // Card list with popup dialogs — mirrors the native ListView case
+      const attrs = entityModel.attributes.filter(a => !a.isAutoNumber)
+      const primaryAttr = attrs[0]?.name
+      const secondaryAttr = attrs[1]?.name
+      const primaryExpr = primaryAttr ? `item.${primaryAttr} || item.id` : `item.id`
+      const avatarExpr = primaryAttr
+        ? `String(item.${primaryAttr} || '?')[0].toUpperCase()`
+        : `String(item.id || '?')[0].toUpperCase()`
+      const subLine = secondaryAttr
+        ? `\n      <div class="mx-list-sub">${secondaryAttr}: <%= item.${secondaryAttr} %></div>`
+        : ''
+
+      const dialogBlocks = reverseO2m.map(r => {
+        const headers = r.displayAttrs.map(a => `          <th>${a}</th>`).join('\n')
+        const cells = r.displayAttrs.map(a => `          <td><%= s.${a} %></td>`).join('\n')
+        return `    <dialog id="modal-${entityLower}-<%= item.id %>" class="mx-dialog">
+      <div class="mx-dialog-header">
+        <h2><%= ${primaryExpr} %></h2>
+        <button onclick="this.closest('dialog').close()" class="mx-dialog-close">&#10005;</button>
+      </div>
+      <% if (item.${r.assocField} && item.${r.assocField}.length > 0) { %>
+      <h3 style="margin-top:1rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:.04em;color:#6b7280">${r.ownerName}</h3>
+      <table class="table" style="margin-top:0.5rem">
+        <thead><tr>
+${headers}
+        </tr></thead>
+        <tbody>
+        <% item.${r.assocField}.forEach(function(s) { %>
+        <tr>
+${cells}
+        </tr>
+        <% }) %>
+        </tbody>
+      </table>
+      <% } else { %>
+      <p style="color:#6b7280;margin-top:1rem">No ${r.ownerName.toLowerCase()} assigned.</p>
+      <% } %>
+    </dialog>`
+      }).join('\n')
+
+      fallback = `  <div class="mx-list">
+    <% ${entityVar}.forEach(function(item) { %>
+    <div class="mx-list-row" onclick="document.getElementById('modal-${entityLower}-<%= item.id %>').showModal()">
+      <div class="mx-avatar"><%= ${avatarExpr} %></div>
+      <div class="mx-list-body">
+        <div class="mx-list-title"><%= ${primaryExpr} %></div>${subLine}
+      </div>
+      <span class="mx-chevron">&#8250;</span>
+    </div>
+${dialogBlocks}
+    <% }) %>
+  </div>
+  <style>
+    .mx-dialog{border:none;border-radius:12px;padding:1.5rem;min-width:360px;box-shadow:0 8px 32px rgba(0,0,0,.2)}
+    .mx-dialog::backdrop{background:rgba(0,0,0,.45)}
+    .mx-dialog-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.5rem}
+    .mx-dialog-header h2{font-size:1.1rem;font-weight:700;color:#0a1326}
+    .mx-dialog-close{background:none;border:none;cursor:pointer;font-size:1.1rem;color:#6b7280;padding:.25rem;line-height:1}
+    .mx-dialog-close:hover{color:#333}
+  </style>`
+    } else {
+      // Generic Object.keys() table fallback
+      fallback = `  <div style="margin: 1.5rem 0">
     <a href="/${entityLower}/new" class="btn">New ${entity}</a>
   </div>
   <table class="table">
@@ -235,7 +302,9 @@ function generateEjsTemplate(page: MendixPage, reverseO2m: ReverseRelation[] = [
     <% }) %>
     </tbody>
   </table>`
-    body = body.replace('<!-- CustomWidget -->', fallbackTable)
+    }
+
+    body = body.replace('<!-- CustomWidget -->', fallback)
   }
 
   const subtitleHtml = subtitleText ? `\n  <p class="mx-subtitle">${subtitleText}</p>` : ''
@@ -618,7 +687,7 @@ export function generatePages(pages: MendixPage[], entities: MendixEntity[] = []
 
     files.push({
       path: `views/${page.name}.ejs`,
-      content: generateEjsTemplate(page, reverseO2m),
+      content: generateEjsTemplate(page, reverseO2m, entityModel),
       category: 'pages'
     })
 
