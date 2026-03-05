@@ -218,6 +218,25 @@ function generateNewFormView(entity: MendixEntity, allEntities: MendixEntity[] =
     })
     .join('\n')
 
+  // One-to-many FK associations: render a single-select dropdown
+  const o2mAssocs = entity.associations.filter(a => a.type === 'one-to-many')
+  const o2mFields = o2mAssocs.map(assoc => {
+    const targetName = assoc.targetEntityName
+    const fkField = `${targetName.toLowerCase()}Id`
+    const targetEntity = allEntities.find(e => e.name.toLowerCase() === targetName.toLowerCase())
+    const displayAttr = targetEntity?.attributes.find(a => !a.isAutoNumber)?.name || 'id'
+    return `  <div class="form-group">
+    <label for="${fkField}">${targetName}</label>
+    <select id="${fkField}" name="${fkField}" class="form-control">
+      <option value="">— none —</option>
+      <% (all${targetName} || []).forEach(function(p) { %>
+      <option value="<%= p.id %>"><%= p.${displayAttr} %></option>
+      <% }) %>
+    </select>
+  </div>`
+  }).join('\n')
+
+  // Many-to-many associations: render a multi-select
   const m2mAssocs = entity.associations.filter(a => a.type === 'many-to-many')
   const m2mFields = m2mAssocs.map(assoc => {
     const targetPlural = pluralize(assoc.targetEntityName)
@@ -237,6 +256,7 @@ function generateNewFormView(entity: MendixEntity, allEntities: MendixEntity[] =
   <h1>New ${entity.name}</h1>
   <form method="POST" action="/${nameLower}/create">
 ${fields || '  <!-- TODO: form fields -->'}
+${o2mFields}
 ${m2mFields}
     <div style="margin-top:1.25rem;display:flex;gap:0.75rem;align-items:center">
       <button type="submit" class="btn">Save</button>
@@ -259,6 +279,25 @@ function generateEditFormView(entity: MendixEntity, allEntities: MendixEntity[] 
     })
     .join('\n')
 
+  // One-to-many FK associations: render a single-select dropdown with pre-selection
+  const o2mAssocs = entity.associations.filter(a => a.type === 'one-to-many')
+  const o2mFields = o2mAssocs.map(assoc => {
+    const targetName = assoc.targetEntityName
+    const fkField = `${targetName.toLowerCase()}Id`
+    const targetEntity = allEntities.find(e => e.name.toLowerCase() === targetName.toLowerCase())
+    const displayAttr = targetEntity?.attributes.find(a => !a.isAutoNumber)?.name || 'id'
+    return `  <div class="form-group">
+    <label for="${fkField}">${targetName}</label>
+    <select id="${fkField}" name="${fkField}" class="form-control">
+      <option value="">— none —</option>
+      <% (all${targetName} || []).forEach(function(p) { %>
+      <option value="<%= p.id %>" <%= item.${fkField} === p.id ? 'selected' : '' %>><%= p.${displayAttr} %></option>
+      <% }) %>
+    </select>
+  </div>`
+  }).join('\n')
+
+  // Many-to-many associations: render a multi-select with pre-selection
   const m2mAssocs = entity.associations.filter(a => a.type === 'many-to-many')
   const m2mFields = m2mAssocs.map(assoc => {
     const targetPlural = pluralize(assoc.targetEntityName)
@@ -278,6 +317,7 @@ function generateEditFormView(entity: MendixEntity, allEntities: MendixEntity[] 
   <h1>Edit ${entity.name}</h1>
   <form method="POST" action="/${nameLower}/<%= item.id %>/update">
 ${fields || '  <!-- TODO: form fields -->'}
+${o2mFields}
 ${m2mFields}
     <div style="margin-top:1.25rem;display:flex;gap:0.75rem;align-items:center">
       <button type="submit" class="btn">Save</button>
@@ -294,23 +334,45 @@ function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string
   const newFormView = entityModel ? `${entityModel.name}_new` : page.name
   const editFormView = entityModel ? `${entityModel.name}_edit` : page.name
 
+  const m2mAssocs = entityModel?.associations.filter(a => a.type === 'many-to-many') ?? []
+  const o2mAssocs = entityModel?.associations.filter(a => a.type === 'one-to-many') ?? []
+
+  // ---- Overview list fetch — include o2m and m2m relations ----
+  const listIncludeParts = [
+    ...m2mAssocs.map(a => `${pluralize(a.targetEntityName)}: true`),
+    ...o2mAssocs.map(a => `${a.targetEntityName.toLowerCase()}: true`)
+  ]
+  const listInclude = listIncludeParts.join(', ')
   // When no entity is resolved, render with an empty list rather than calling
   // a non-existent prisma model and crashing at runtime.
   const listFetch = hasEntity
-    ? `const ${entity}List = await prisma.${entity}.findMany()`
+    ? listInclude
+      ? `const ${entity}List = await prisma.${entity}.findMany({ include: { ${listInclude} } })`
+      : `const ${entity}List = await prisma.${entity}.findMany()`
     : `const ${entity}List: unknown[] = []`
 
-  const m2mAssocs = entityModel?.associations.filter(a => a.type === 'many-to-many') ?? []
+  // Shared render vars appended to every form render call
+  const allAssocRenderVars = [
+    ...m2mAssocs.map(a => `, all${a.targetEntityName}`),
+    ...o2mAssocs.map(a => `, all${a.targetEntityName}`)
+  ].join('')
 
   // ---- Edit GET snippets ----
-  const editInclude = m2mAssocs.length > 0
-    ? `, include: { ${m2mAssocs.map(a => `${pluralize(a.targetEntityName)}: true`).join(', ')} }`
+  const editIncludeParts = [
+    ...m2mAssocs.map(a => `${pluralize(a.targetEntityName)}: true`),
+    ...o2mAssocs.map(a => `${a.targetEntityName.toLowerCase()}: true`)
+  ]
+  const editInclude = editIncludeParts.length > 0
+    ? `, include: { ${editIncludeParts.join(', ')} }`
     : ''
-  const editAssocLoads = m2mAssocs.map(a =>
-    `    const all${a.targetEntityName} = await prisma.${pluralize(a.targetEntityName)}.findMany()`
-  ).join('\n')
-  const editRenderObj = m2mAssocs.length > 0
-    ? `{ title: 'Edit ${page.entityName || entity}', item${m2mAssocs.map(a => `, all${a.targetEntityName}`).join('')} }`
+  const editAssocLoads = [
+    ...m2mAssocs.map(a =>
+      `    const all${a.targetEntityName} = await prisma.${pluralize(a.targetEntityName)}.findMany()`),
+    ...o2mAssocs.map(a =>
+      `    const all${a.targetEntityName} = await prisma.${a.targetEntityName.toLowerCase()}.findMany({ orderBy: { id: 'asc' } })`)
+  ].join('\n')
+  const editRenderObj = (m2mAssocs.length > 0 || o2mAssocs.length > 0)
+    ? `{ title: 'Edit ${page.entityName || entity}', item${allAssocRenderVars} }`
     : `{ title: 'Edit ${page.entityName || entity}', item }`
 
   // ---- Update POST snippets ----
@@ -322,22 +384,42 @@ function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string
   const m2mSetOps = m2mAssocs.map(a =>
     `      ${pluralize(a.targetEntityName)}: { set: ${pluralize(a.targetEntityName)}Ids.map((id: string) => ({ id: parseInt(id) })) }`
   ).join(',\n')
+
+  // O2M: parse FK fields as integers on write
+  const o2mFkFields = o2mAssocs.map(a => `${a.targetEntityName.toLowerCase()}Id`)
+  const o2mFkParseLines = o2mFkFields.map(fk =>
+    `    const ${fk} = req.body.${fk} ? parseInt(req.body.${fk}) : null`
+  ).join('\n')
+  const o2mFkSpread = o2mFkFields.length > 0
+    ? `{ ...req.body, ${o2mFkFields.join(', ')} }`
+    : `req.body`
+
   const updateDataBlock = m2mAssocs.length > 0
     ? [
         m2mExtractLines,
         `    const data: Record<string, unknown> = { ...req.body }`,
         m2mDeleteLines,
+        ...o2mAssocs.map(a => {
+          const fk = `${a.targetEntityName.toLowerCase()}Id`
+          return `    data.${fk} = req.body.${fk} ? parseInt(req.body.${fk} as string) : null`
+        }),
         `    await prisma.${entity}.update({ where: { id: parseInt(req.params.id) }, data: { ...data,\n${m2mSetOps}\n    } })`
-      ].join('\n')
-    : `    await prisma.${entity}.update({ where: { id: parseInt(req.params.id) }, data: req.body })`
+      ].filter(Boolean).join('\n')
+    : o2mAssocs.length > 0
+      ? `${o2mFkParseLines}\n    await prisma.${entity}.update({ where: { id: parseInt(req.params.id) }, data: ${o2mFkSpread} })`
+      : `    await prisma.${entity}.update({ where: { id: parseInt(req.params.id) }, data: req.body })`
 
   // ---- New GET + Create POST snippets ----
-  const newAssocLoads = m2mAssocs.map(a =>
-    `    const all${a.targetEntityName} = await prisma.${pluralize(a.targetEntityName)}.findMany()`
-  ).join('\n')
-  const newRenderObj = m2mAssocs.length > 0
-    ? `{ title: 'New ${page.entityName || entity}', item: null${m2mAssocs.map(a => `, all${a.targetEntityName}`).join('')} }`
+  const newAssocLoads = [
+    ...m2mAssocs.map(a =>
+      `    const all${a.targetEntityName} = await prisma.${pluralize(a.targetEntityName)}.findMany()`),
+    ...o2mAssocs.map(a =>
+      `    const all${a.targetEntityName} = await prisma.${a.targetEntityName.toLowerCase()}.findMany({ orderBy: { id: 'asc' } })`)
+  ].join('\n')
+  const newRenderObj = (m2mAssocs.length > 0 || o2mAssocs.length > 0)
+    ? `{ title: 'New ${page.entityName || entity}', item: null${allAssocRenderVars} }`
     : `{ title: 'New ${page.entityName || entity}', item: null }`
+
   const m2mCreateExtractLines = m2mAssocs.map(a => {
     const plural = pluralize(a.targetEntityName)
     return `    const rawNew${a.targetEntityName} = req.body.${plural}Ids\n    const new${plural}Ids = Array.isArray(rawNew${a.targetEntityName}) ? rawNew${a.targetEntityName} : rawNew${a.targetEntityName} ? [rawNew${a.targetEntityName}] : []`
@@ -346,17 +428,24 @@ function generateRouteFile(page: MendixPage, entityModel?: MendixEntity): string
   const m2mConnectOps = m2mAssocs.map(a =>
     `      ${pluralize(a.targetEntityName)}: { connect: new${pluralize(a.targetEntityName)}Ids.map((id: string) => ({ id: parseInt(id) })) }`
   ).join(',\n')
+
   const createDataBlock = m2mAssocs.length > 0
     ? [
         m2mCreateExtractLines,
         `    const createData: Record<string, unknown> = { ...req.body }`,
         m2mCreateDeleteLines,
+        ...o2mAssocs.map(a => {
+          const fk = `${a.targetEntityName.toLowerCase()}Id`
+          return `    createData.${fk} = req.body.${fk} ? parseInt(req.body.${fk} as string) : null`
+        }),
         `    await prisma.${entity}.create({ data: { ...createData,\n${m2mConnectOps}\n    } })`
-      ].join('\n')
-    : `    await prisma.${entity}.create({ data: req.body })`
+      ].filter(Boolean).join('\n')
+    : o2mAssocs.length > 0
+      ? `${o2mFkParseLines}\n    await prisma.${entity}.create({ data: ${o2mFkSpread} })`
+      : `    await prisma.${entity}.create({ data: req.body })`
 
   // ---- New GET route body ----
-  const newGetBody = m2mAssocs.length > 0
+  const newGetBody = (m2mAssocs.length > 0 || o2mAssocs.length > 0)
     ? `  try {\n${newAssocLoads}\n    res.render('${newFormView}', ${newRenderObj})\n  } catch (err) {\n    res.status(500).render('error', { title: 'Error', message: 'Failed to load form' })\n  }`
     : `  res.render('${newFormView}', ${newRenderObj})`
 
