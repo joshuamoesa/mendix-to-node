@@ -416,10 +416,14 @@ All generators are **pure functions** — no network calls, no side effects. The
 - Form actions use the page's route path (e.g. `/{pageName}/save`), not the entity path
 - Routes use `import { prisma } from '../db'` (singleton)
 - When `page.entityName` is set, the route generates `prisma.{entity}.findMany()` for GET; otherwise it generates `const itemList: unknown[] = []` to avoid a runtime crash on pages with no resolved entity
-- **DataGrid** and **ListView** are separate switch cases in `widgetToHtml`. DataGrid renders an HTML `<table>` with column headers and Edit/Delete/New actions. ListView renders avatar cards.
-- **CustomWidget fallback table**: `generateEjsTemplate` post-processes the widget HTML — if the page has a resolved entity and the output contains `<!-- CustomWidget -->` (Marketplace DataGrid 2 / ListView), it replaces the first occurrence with a dynamic EJS table that derives column headers from `Object.keys(entityList[0])` at runtime. This gracefully handles opaque SDK widget types while still rendering the actual Prisma data.
+- **DataGrid** and **ListView** are separate switch cases in `widgetToHtml`. DataGrid renders an HTML `<table>` with column headers and Edit/Delete/New actions. ListView renders avatar cards. When the page entity has **reverse one-to-many relations** (other entities that FK back to it), the ListView case also generates a native `<dialog>` popup per card: clicking a card calls `showModal()` and the dialog renders a table of related rows. The dialog ID is embedded via EJS (`<%= item.id %>`) — not as a runtime JS variable, since `item` only exists in EJS template scope.
+- **`ReverseRelation` type**: `{ ownerName: string; assocField: string; displayAttrs: string[] }`. Built in `generatePages` by scanning all entities for `type === 'one-to-many'` associations and constructing a `reverseO2mMap: Map<string, ReverseRelation[]>` keyed by the lowercase target entity name. Passed to both `generateEjsTemplate` and `generateRouteFile`.
+- **CustomWidget fallback**: `generateEjsTemplate` post-processes the widget HTML — if the page has a resolved entity and the output contains `<!-- CustomWidget -->` (Marketplace DataGrid 2 / ListView), it replaces the first occurrence with one of two alternatives:
+  - **Card list + `<dialog>` popups** (when `reverseO2m.length > 0 && entityModel`): generates avatar cards using the entity's first two non-AutoNumber attributes as primary/secondary display text. Each card has an `onclick` that calls `document.getElementById('modal-{entity}-<%= item.id %>').showModal()`. A `<dialog>` per card renders a table of related rows from each reverse relation. `::backdrop` CSS provides the dimmed overlay.
+  - **`Object.keys()` dynamic table** (fallback when no reverse relations): derives column headers from `Object.keys(entityList[0])` at runtime, rendering all fields of the first Prisma record. This covers pages where entity context is known but no popup is needed.
+- **`onclick` EJS pattern**: the dialog ID in onclick attributes must use EJS interpolation: `onclick="...getElementById('modal-entity-<%= item.id %>').showModal()"`. Using `item.id` as plain JavaScript in an HTML attribute fails at runtime because `item` is an EJS template variable, not a browser-scope variable.
 - **One-to-many FK associations in forms**: `generateNewFormView` and `generateEditFormView` detect `entity.associations` with `type === 'one-to-many'` and render a `<select>` dropdown for each, keyed by `${targetName.toLowerCase()}Id`. The edit form pre-selects the current FK value. The new/edit routes load all target entities (`all${TargetName}`) and pass them to the template. Create/update routes parse the FK field with `parseInt()` or `null` before writing to Prisma — Prisma requires `Int?`, not a raw request body string.
-- **Overview route includes o2m relations**: When an entity has one-to-many associations, the overview `findMany` is generated with `include: { targetName: true }` so related object data is available in the EJS template.
+- **Overview route includes o2m relations**: When an entity has one-to-many associations (forward), the overview `findMany` is generated with `include: { targetName: true }`. When an entity is the *target* of reverse one-to-many relations (other entities FK back to it), `generateRouteFile` also adds those to the `include` — this is what supplies the related rows displayed in the popup dialogs.
 - **Heading promotion**: `extractHeadings()` collects the first two `Text`/`Label` widget captions from the page in document order. `generateEjsTemplate` uses the first as the `<h1>` and the second (if present) as `<p class="mx-subtitle">`. Both are added to a `promotedCaptions` set passed to `widgetToHtml` so those widgets return `''` instead of duplicating as `<p>` tags in the body. This ensures the generated heading text comes from the DynamicText content (e.g. "Moesa files") rather than the internal Mendix page name (e.g. "Home_Web").
 - Always generates `views/error.ejs` (used by route error handlers)
 - Entity routes → REST CRUD: GET all, GET /:id, POST, PUT /:id, DELETE /:id
@@ -561,7 +565,10 @@ The Mendix SDK cannot be bundled by webpack — it uses dynamic `require` intern
 - The widget is a `DynamicText` whose text is in `widget.content.template.translations[0].text`, not `widget.caption`. Check the DynamicText branch in `extractWidgetTree`.
 
 **CustomWidget shows as `<!-- CustomWidget -->` with no data**
-- Marketplace custom widgets (DataGrid 2, ListView, etc.) are opaque to the SDK. The page generator automatically replaces `<!-- CustomWidget -->` with a dynamic fallback table when `page.entityName` is known. If the entity is also unknown, the page will have no data-rendering content — this is expected and the page-name fallback matching in `extractPages` is the mitigation.
+- Marketplace custom widgets (DataGrid 2, ListView, etc.) are opaque to the SDK. The page generator automatically replaces `<!-- CustomWidget -->` with either a card list + popup dialogs (when reverse o2m relations exist) or a `Object.keys()` dynamic table (otherwise). If the entity is also unknown, the page will have no data-rendering content — this is expected and the page-name fallback matching in `extractPages` is the mitigation.
+
+**Clicking a person card throws `ReferenceError: item is not defined`**
+- The `onclick` attribute in a generated EJS template was using `item.id` as a plain JavaScript variable. `item` only exists in the EJS `forEach` loop — it is not in scope when the browser executes the onclick handler. The ID must be embedded with EJS: `onclick="document.getElementById('modal-entity-<%= item.id %>').showModal()"`. Check `pageGenerator.ts` for any `'modal-'+item.id` patterns and replace them with the EJS form.
 
 **CustomWidget entity is null even though entity binding is configured in Studio Pro**
 - The SDK v5 uses `DirectEntityRef.entityQualifiedName` (not `.qualifiedName`) and `DataSource.entityQualifiedName` (not `.entity.qualifiedName`). The extraction code in `extractWidgetTree` uses both paths — if you add new extraction paths, always use `.entityQualifiedName` for `EntityRef` and `DataSource` objects.
@@ -611,6 +618,10 @@ Before committing:
 - [ ] Generated `prisma/schema.prisma` uses `provider = "sqlite"` and no `Decimal` fields
 - [ ] Generated schema: every relation field has both sides declared (no one-sided associations)
 - [ ] For a one-to-many association, the owning entity has both the FK column (`targetId Int?`) and the scalar navigation; the target entity has the array navigation
+- [ ] Edit/new forms for an entity with o2m associations show `<select>` dropdowns for each FK field
+- [ ] Home page (or any list page with reverse o2m) shows clickable avatar cards
+- [ ] Clicking a person card opens a `<dialog>` popup showing related rows (e.g. skills table)
+- [ ] Dialog ✕ button closes the popup; clicking outside (backdrop) does not close it by default
 - [ ] Export button hidden for SVN repos
 - [ ] Error state shows Retry button + Back to Projects
 - [ ] Launch App button appears on export page after code is ready
